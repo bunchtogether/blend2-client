@@ -28,13 +28,11 @@ export default class BlendClient extends EventEmitter {
     this.element = element;
     this.streamUrl = streamUrl;
     this.videoQueue = [];
-    this.audioQueue = [];
     this.resetInProgress = false;
     const clientLogger = makeBlendLogger(`${streamUrl} Client`);
     this.videoLogger = makeBlendLogger(`${streamUrl} Video Element`);
     this.mediaSourceLogger = makeBlendLogger(`${streamUrl} Media Source`);
     this.videoBufferLogger = makeBlendLogger(`${streamUrl} Video Source Buffer`);
-    this.audioBufferLogger = makeBlendLogger(`${streamUrl} Audio Source Buffer`);
     this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
     this.setupElementLogging(element);
     this.openWebSocket(streamUrl);
@@ -127,10 +125,8 @@ export default class BlendClient extends EventEmitter {
     await this.closeWebSocket();
     this.element.removeAttribute('src');
     this.element.load();
-    delete this.audioBuffer;
     delete this.videoBuffer;
     this.videoQueue = [];
-    this.audioQueue = [];
   }
 
   async reset() {
@@ -185,40 +181,20 @@ export default class BlendClient extends EventEmitter {
 
     ws.onmessage = (event) => {
       const typedArray = new Uint8Array(event.data);
-      const data = typedArray.slice(1);
-      const messageType = typedArray[0];
-      if (messageType === 0) {
-        const audioBuffer = this.audioBuffer;
-        const audioQueue = this.audioQueue;
-        if (audioBuffer) {
-          if (audioQueue.length > 0 || audioBuffer.updating) {
-            audioQueue.push(data);
-          } else {
-            try {
-              audioBuffer.appendBuffer(data);
-            } catch (error) {
-              this.audioBufferLogger.error(`${error.message}, code: ${error.code}`);
-            }
-          }
+      const videoBuffer = this.videoBuffer;
+      const videoQueue = this.videoQueue;
+      if (videoBuffer) {
+        if (videoQueue.length > 0 || videoBuffer.updating) {
+          videoQueue.push(typedArray);
         } else {
-          audioQueue.push(data);
-        }
-      } else if (messageType === 1) {
-        const videoBuffer = this.videoBuffer;
-        const videoQueue = this.videoQueue;
-        if (videoBuffer) {
-          if (videoQueue.length > 0 || videoBuffer.updating) {
-            videoQueue.push(data);
-          } else {
-            try {
-              videoBuffer.appendBuffer(data);
-            } catch (error) {
-              this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
-            }
+          try {
+            videoBuffer.appendBuffer(typedArray);
+          } catch (error) {
+            this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
           }
-        } else {
-          videoQueue.push(data);
         }
+      } else {
+        videoQueue.push(typedArray);
       }
     };
 
@@ -264,7 +240,7 @@ export default class BlendClient extends EventEmitter {
       };
       mediaSource.addEventListener('sourceopen', handle);
     });
-    const videoBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.64001f"');
+    const videoBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.64001f, mp4a.40.2"');
     this.videoBuffer = videoBuffer;
     this.setupVideoBufferLogging(videoBuffer);
     videoBuffer.addEventListener('updateend', async () => {
@@ -276,20 +252,6 @@ export default class BlendClient extends EventEmitter {
         }
       }
     });
-    const audioBuffer = mediaSource.addSourceBuffer('audio/aac');
-    this.audioBuffer = audioBuffer;
-    this.setupAudioBufferLogging(audioBuffer);
-    audioBuffer.addEventListener('updateend', async () => {
-      if (this.audioQueue.length > 0 && !audioBuffer.updating) {
-        try {
-          const data = mergeUint8Arrays(this.audioQueue);
-          this.audioQueue = [];
-          audioBuffer.appendBuffer(data);
-        } catch (error) {
-          this.audioBufferLogger.error(`${error.message}, code: ${error.code}`);
-        }
-      }
-    });
     if (this.videoQueue.length > 0 && !videoBuffer.updating) {
       try {
         const data = mergeUint8Arrays(this.videoQueue);
@@ -297,13 +259,6 @@ export default class BlendClient extends EventEmitter {
         videoBuffer.appendBuffer(data);
       } catch (error) {
         this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
-      }
-    }
-    if (this.audioQueue.length > 0 && !audioBuffer.updating) {
-      try {
-        audioBuffer.appendBuffer(this.audioQueue.shift());
-      } catch (error) {
-        this.audioBufferLogger.error(`${error.message}, code: ${error.code}`);
       }
     }
   }
@@ -364,31 +319,6 @@ export default class BlendClient extends EventEmitter {
     });
     videoBuffer.addEventListener('removesourcevideoBuffer', () => {
       videoBufferLogger.info('removesourcevideoBuffer');
-    });
-  }
-
-  setupAudioBufferLogging(audioBuffer              ) {
-    const audioBufferLogger = this.audioBufferLogger;
-    audioBuffer.addEventListener('sourceopen', () => {
-      audioBufferLogger.info('sourceopen');
-    });
-    audioBuffer.addEventListener('sourceended', () => {
-      audioBufferLogger.info('sourceended');
-    });
-    audioBuffer.addEventListener('sourceclose', () => {
-      audioBufferLogger.info('sourceclose');
-    });
-    audioBuffer.addEventListener('error', () => {
-      audioBufferLogger.info('error');
-    });
-    audioBuffer.addEventListener('abort', () => {
-      audioBufferLogger.info('abort');
-    });
-    audioBuffer.addEventListener('addsourcebuffer', () => {
-      audioBufferLogger.info('addsourcebuffer');
-    });
-    audioBuffer.addEventListener('removesourcebuffer', () => {
-      audioBufferLogger.info('removesourcebuffer');
     });
   }
 
@@ -484,9 +414,7 @@ export default class BlendClient extends EventEmitter {
                       
                             
                             
-                            
                           
-                               
                                
 }
 
