@@ -1,0 +1,492 @@
+//      
+
+import { EventEmitter } from 'events';
+import WebSocket from 'isomorphic-ws';
+import blendServerDetectedPromise from './server-detection';
+import makeBlendLogger from './logger';
+
+const mergeUint8Arrays = (arrays) => {
+  let length = 0;
+  arrays.forEach((item) => {
+    length += item.length;
+  });
+  const merged = new Uint8Array(length);
+  let offset = 0;
+  arrays.forEach((item) => {
+    merged.set(item, offset);
+    offset += item.length;
+  });
+  return merged;
+};
+
+/**
+ * Class representing a Blend Client
+ */
+export default class BlendClient extends EventEmitter {
+  constructor(element                  , streamUrl       ) {
+    super();
+    this.element = element;
+    this.streamUrl = streamUrl;
+    this.videoQueue = [];
+    this.audioQueue = [];
+    this.resetInProgress = false;
+    const clientLogger = makeBlendLogger(`${streamUrl} Client`);
+    this.videoLogger = makeBlendLogger(`${streamUrl} Video Element`);
+    this.mediaSourceLogger = makeBlendLogger(`${streamUrl} Media Source`);
+    this.videoBufferLogger = makeBlendLogger(`${streamUrl} Video Source Buffer`);
+    this.audioBufferLogger = makeBlendLogger(`${streamUrl} Audio Source Buffer`);
+    this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
+    this.setupElementLogging(element);
+    this.openWebSocket(streamUrl);
+    this.setupMediaSource(element);
+    element.addEventListener('error', (event      ) => {
+      if (event.type !== 'error') {
+        return;
+      }
+      const mediaError = element.error;
+      if (mediaError && mediaError.code === mediaError.MEDIA_ERR_DECODE) {
+        // this.emit('error', mediaError);
+        this.reset();
+      }
+    });
+    let nextBufferedSegmentInterval;
+    const skipToNextBufferedSegment = () => {
+      const videoBuffer = this.videoBuffer;
+      if (!videoBuffer) {
+        return;
+      }
+      for (let i = 0; i < videoBuffer.buffered.length; i += 1) {
+        const segmentStart = videoBuffer.buffered.start(i);
+        if (segmentStart > element.currentTime) {
+          this.videoLogger.warn(`Skipping ${segmentStart - element.currentTime} ms`);
+          element.currentTime = segmentStart; // eslint-disable-line no-param-reassign
+          return;
+        }
+      }
+    };
+    element.addEventListener('waiting', () => {
+      ensureRecovery();
+      if (!this.videoBuffer) {
+        return;
+      }
+      clearInterval(nextBufferedSegmentInterval);
+      nextBufferedSegmentInterval = setInterval(() => {
+        skipToNextBufferedSegment();
+      }, 100);
+      skipToNextBufferedSegment();
+    });
+    element.addEventListener('canplay', () => {
+      clearInterval(nextBufferedSegmentInterval);
+      element.play();
+    });
+    const elementIsPlaying = () => {
+      if (!element) {
+        return false;
+      }
+      return !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2);
+    };
+    let recoveryTimeout = null;
+    const ensureRecovery = () => {
+      if (elementIsPlaying()) {
+        clientLogger.info('Element is playing, skipping recovery detection');
+        return;
+      }
+      if (recoveryTimeout || this.resetInProgress) {
+        clientLogger.info('Recovery detection already in progress, skipping');
+        return;
+      }
+      clientLogger.info('Ensuring recovery after error detected');
+      const recoveryStart = Date.now();
+      const handlePlay = () => {
+        clientLogger.info(`Recovered after ${Math.round((Date.now() - recoveryStart) / 100) / 10} seconds`);
+        if (recoveryTimeout) {
+          clearTimeout(recoveryTimeout);
+        }
+        recoveryTimeout = null;
+        element.removeEventListener('play', handlePlay);
+        element.removeEventListener('playing', handlePlay);
+      };
+      recoveryTimeout = setTimeout(() => {
+        if (elementIsPlaying()) {
+          clientLogger.info('Detected playing element after recovery timeout');
+          handlePlay();
+          return;
+        }
+        recoveryTimeout = null;
+        clientLogger.error('Timeout after attempted recovery');
+        this.reset();
+        element.removeEventListener('play', handlePlay);
+        element.removeEventListener('playing', handlePlay);
+      }, 10000);
+      element.addEventListener('play', handlePlay);
+      element.addEventListener('playing', handlePlay);
+    };
+  }
+
+  async close() {
+    await this.closeWebSocket();
+    this.element.removeAttribute('src');
+    this.element.load();
+    delete this.audioBuffer;
+    delete this.videoBuffer;
+    this.videoQueue = [];
+    this.audioQueue = [];
+  }
+
+  async reset() {
+    if (this.resetInProgress) {
+      return;
+    }
+    this.resetInProgress = true;
+    await this.close();
+    this.resetInProgress = false;
+    this.openWebSocket(this.streamUrl);
+    this.setupMediaSource(this.element);
+  }
+
+  /**
+   * Connects to a server.
+   * @param {string} address Stream URL
+   * @return {Promise<void>}
+   */
+  async openWebSocket(streamUrl       ) {
+    const address = `ws://127.0.0.1:61340/api/1.0/stream/${encodeURIComponent(streamUrl)}/`;
+
+    const blendServerDetected = await blendServerDetectedPromise;
+
+    if (!blendServerDetected) {
+      this.webSocketLogger.error(`Unable to open web socket connection to ${address}, Blend Server not detected`);
+      return;
+    }
+
+    const ws = new WebSocket(address);
+
+    let heartbeatInterval;
+
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      this.emit('open');
+      this.ws = ws;
+      heartbeatInterval = setInterval(() => {
+        if (ws.readyState === 1) {
+          ws.send(new Uint8Array([]));
+        }
+      }, 5000);
+    };
+
+    ws.onclose = (event) => {
+      clearInterval(heartbeatInterval);
+      const { wasClean, reason, code } = event;
+      this.webSocketLogger.info(`${wasClean ? 'Cleanly' : 'Uncleanly'} closed websocket connection to ${address} with code ${code}${reason ? `: ${reason}` : ''}`);
+      delete this.ws;
+      this.emit('close', code, reason);
+    };
+
+    ws.onmessage = (event) => {
+      const typedArray = new Uint8Array(event.data);
+      const data = typedArray.slice(1);
+      const messageType = typedArray[0];
+      if (messageType === 0) {
+        const audioBuffer = this.audioBuffer;
+        const audioQueue = this.audioQueue;
+        if (audioBuffer) {
+          if (audioQueue.length > 0 || audioBuffer.updating) {
+            audioQueue.push(data);
+          } else {
+            try {
+              audioBuffer.appendBuffer(data);
+            } catch (error) {
+              this.audioBufferLogger.error(`${error.message}, code: ${error.code}`);
+            }
+          }
+        } else {
+          audioQueue.push(data);
+        }
+      } else if (messageType === 1) {
+        const videoBuffer = this.videoBuffer;
+        const videoQueue = this.videoQueue;
+        if (videoBuffer) {
+          if (videoQueue.length > 0 || videoBuffer.updating) {
+            videoQueue.push(data);
+          } else {
+            try {
+              videoBuffer.appendBuffer(data);
+            } catch (error) {
+              this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
+            }
+          }
+        } else {
+          videoQueue.push(data);
+        }
+      }
+    };
+
+    ws.onerror = (event) => {
+      this.webSocketLogger.error(event);
+      this.emit('error', event);
+    };
+  }
+
+  /**
+   * Close connection to server.
+   * @param {number} [code] Websocket close reason code to send to the server
+   * @param {string} [reason] Websocket close reason to send to the server
+   * @return {Promise<void>}
+   */
+  async closeWebSocket(code         , reason         ) {
+    if (!this.ws) {
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      const onClose = () => {
+        this.removeListener('error', onError);
+        resolve();
+      };
+      const onError = (event       ) => {
+        this.removeListener('close', onClose);
+        reject(event);
+      };
+      this.once('error', onError);
+      this.once('close', onClose);
+      this.ws.close(code, reason);
+    });
+  }
+
+  async setupMediaSource(element                  ) {
+    const mediaSource = new MediaSource();
+    this.setupMediaSourceLogging(mediaSource);
+    element.src = URL.createObjectURL(mediaSource); // eslint-disable-line no-param-reassign
+    await new Promise((resolve) => {
+      const handle = () => {
+        mediaSource.removeEventListener('sourceopen', handle);
+        resolve();
+      };
+      mediaSource.addEventListener('sourceopen', handle);
+    });
+    const videoBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.64001f"');
+    this.videoBuffer = videoBuffer;
+    this.setupVideoBufferLogging(videoBuffer);
+    videoBuffer.addEventListener('updateend', async () => {
+      if (this.videoQueue.length > 0 && !videoBuffer.updating) {
+        try {
+          videoBuffer.appendBuffer(this.videoQueue.shift());
+        } catch (error) {
+          this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
+        }
+      }
+    });
+    const audioBuffer = mediaSource.addSourceBuffer('audio/aac');
+    this.audioBuffer = audioBuffer;
+    this.setupAudioBufferLogging(audioBuffer);
+    audioBuffer.addEventListener('updateend', async () => {
+      if (this.audioQueue.length > 0 && !audioBuffer.updating) {
+        try {
+          const data = mergeUint8Arrays(this.audioQueue);
+          this.audioQueue = [];
+          audioBuffer.appendBuffer(data);
+        } catch (error) {
+          this.audioBufferLogger.error(`${error.message}, code: ${error.code}`);
+        }
+      }
+    });
+    if (this.videoQueue.length > 0 && !videoBuffer.updating) {
+      try {
+        const data = mergeUint8Arrays(this.videoQueue);
+        this.videoQueue = [];
+        videoBuffer.appendBuffer(data);
+      } catch (error) {
+        this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
+      }
+    }
+    if (this.audioQueue.length > 0 && !audioBuffer.updating) {
+      try {
+        audioBuffer.appendBuffer(this.audioQueue.shift());
+      } catch (error) {
+        this.audioBufferLogger.error(`${error.message}, code: ${error.code}`);
+      }
+    }
+  }
+
+  setupMediaSourceLogging(mediaSource             ) {
+    const mediaSourceLogger = this.mediaSourceLogger;
+    mediaSource.addEventListener('sourceopen', () => {
+      mediaSourceLogger.info('sourceopen');
+    });
+    mediaSource.addEventListener('sourceended', () => {
+      mediaSourceLogger.info('sourceended');
+    });
+    mediaSource.addEventListener('sourceclose', () => {
+      mediaSourceLogger.info('sourceclose');
+    });
+    mediaSource.addEventListener('updatestart', () => {
+      mediaSourceLogger.info('updatestart');
+    });
+    mediaSource.addEventListener('update', () => {
+      mediaSourceLogger.info('update');
+    });
+    mediaSource.addEventListener('updateend', () => {
+      mediaSourceLogger.info('updateend');
+    });
+    mediaSource.addEventListener('error', () => {
+      mediaSourceLogger.info('error');
+    });
+    mediaSource.addEventListener('abort', () => {
+      mediaSourceLogger.info('abort');
+    });
+    mediaSource.addEventListener('addsourcevideoBuffer', () => {
+      mediaSourceLogger.info('addsourcevideoBuffer');
+    });
+    mediaSource.addEventListener('removesourcevideoBuffer', () => {
+      mediaSourceLogger.info('removesourcevideoBuffer');
+    });
+  }
+
+  setupVideoBufferLogging(videoBuffer              ) {
+    const videoBufferLogger = this.videoBufferLogger;
+    videoBuffer.addEventListener('sourceopen', () => {
+      videoBufferLogger.info('sourceopen');
+    });
+    videoBuffer.addEventListener('sourceended', () => {
+      videoBufferLogger.info('sourceended');
+    });
+    videoBuffer.addEventListener('sourceclose', () => {
+      videoBufferLogger.info('sourceclose');
+    });
+    videoBuffer.addEventListener('error', () => {
+      videoBufferLogger.info('error');
+    });
+    videoBuffer.addEventListener('abort', () => {
+      videoBufferLogger.info('abort');
+    });
+    videoBuffer.addEventListener('addsourcevideoBuffer', () => {
+      videoBufferLogger.info('addsourcevideoBuffer');
+    });
+    videoBuffer.addEventListener('removesourcevideoBuffer', () => {
+      videoBufferLogger.info('removesourcevideoBuffer');
+    });
+  }
+
+  setupAudioBufferLogging(audioBuffer              ) {
+    const audioBufferLogger = this.audioBufferLogger;
+    audioBuffer.addEventListener('sourceopen', () => {
+      audioBufferLogger.info('sourceopen');
+    });
+    audioBuffer.addEventListener('sourceended', () => {
+      audioBufferLogger.info('sourceended');
+    });
+    audioBuffer.addEventListener('sourceclose', () => {
+      audioBufferLogger.info('sourceclose');
+    });
+    audioBuffer.addEventListener('error', () => {
+      audioBufferLogger.info('error');
+    });
+    audioBuffer.addEventListener('abort', () => {
+      audioBufferLogger.info('abort');
+    });
+    audioBuffer.addEventListener('addsourcebuffer', () => {
+      audioBufferLogger.info('addsourcebuffer');
+    });
+    audioBuffer.addEventListener('removesourcebuffer', () => {
+      audioBufferLogger.info('removesourcebuffer');
+    });
+  }
+
+  setupElementLogging(element                  ) {
+    const videoLogger = this.videoLogger;
+    element.addEventListener('resize', () => {
+      videoLogger.info('abort', 'Sent when playback is aborted; for example, if the media is playing and is restarted from the beginning, this event is sent');
+    });
+    element.addEventListener('canplay', () => {
+      videoLogger.info('canplay', 'Sent when enough data is available that the media can be played, at least for a couple of frames.  This corresponds to the HAVE_ENOUGH_DATA readyState');
+    });
+    element.addEventListener('canplaythrough', () => {
+      videoLogger.info('canplaythrough', 'Sent when the ready state changes to CAN_PLAY_THROUGH, indicating that the entire media can be played without interruption, assuming the download rate remains at least at the current level. It will also be fired when playback is toggled between paused and playing. Note: Manually setting the currentTime will eventually fire a canplaythrough event in firefox. Other browsers might not fire this event');
+    });
+    element.addEventListener('durationchange', () => {
+      videoLogger.info('durationchange', 'The metadata has loaded or changed, indicating a change in duration of the media.  This is sent, for example, when the media has loaded enough that the duration is known');
+    });
+    element.addEventListener('emptied', () => {
+      videoLogger.info('emptied', 'The media has become empty; for example, this event is sent if the media has already been loaded (or partially loaded), and the load() method is called to reload it');
+    });
+    element.addEventListener('encrypted', () => {
+      videoLogger.info('encrypted', ' The user agent has encountered initialization data in the media data');
+    });
+    element.addEventListener('ended', () => {
+      videoLogger.info('ended', 'Sent when playback completes');
+    });
+    element.addEventListener('error', (event              ) => {
+      const mediaError = element.error;
+      const message = mediaError && mediaError.message ? mediaError.message : null;
+      if (mediaError && message) {
+        videoLogger.error(`${mediaError.code}: ${message}`);
+      } else {
+        videoLogger.error('error', 'Sent when an error occurs.  The element\'s error attribute contains more information. See HTMLMediaElement.error for details');
+        if (event) {
+          videoLogger.error(event);
+        }
+      }
+    });
+    element.addEventListener('interruptbegin', () => {
+      videoLogger.info('interruptbegin', 'Sent when audio playing on a Firefox OS device is interrupted, either because the app playing the audio is sent to the background, or audio in a higher priority audio channel begins to play. See Using the AudioChannels API for more details');
+    });
+    element.addEventListener('interruptend', () => {
+      videoLogger.info('interruptend', 'Sent when previously interrupted audio on a Firefox OS device commences playing again — when the interruption ends. This is when the associated app comes back to the foreground, or when the higher priority audio finished playing. See Using the AudioChannels API for more details');
+    });
+    element.addEventListener('loadeddata', () => {
+      videoLogger.info('loadeddata', 'The first frame of the media has finished loading');
+    });
+    element.addEventListener('loadedmetadata', () => {
+      videoLogger.info('loadedmetadata', 'The media\'s metadata has finished loading; all attributes now contain as much useful information as they\'re going to');
+    });
+    element.addEventListener('loadstart', () => {
+      videoLogger.info('loadstart', 'Sent when loading of the media begins');
+    });
+    element.addEventListener('mozaudioavailable', () => {
+      videoLogger.info('mozaudioavailable', 'Sent when an audio videoBuffer is provided to the audio layer for processing; the videoBuffer contains raw audio samples that may or may not already have been played by the time you receive the event');
+    });
+    element.addEventListener('pause', () => {
+      videoLogger.info('pause', 'Sent when the playback state is changed to paused (paused property is true)');
+    });
+    element.addEventListener('play', () => {
+      videoLogger.info('play', 'Sent when the playback state is no longer paused, as a result of the play method, or the autoplay attribute');
+    });
+    element.addEventListener('playing', () => {
+      videoLogger.info('playing', 'Sent when the media has enough data to start playing, after the play event, but also when recovering from being stalled, when looping media restarts, and after seeked, if it was playing before seeking');
+    });
+    element.addEventListener('ratechange', () => {
+      videoLogger.info('ratechange', 'Sent when the playback speed changes');
+    });
+    element.addEventListener('seeked', () => {
+      videoLogger.info('seeked', 'Sent when a seek operation completes');
+    });
+    element.addEventListener('seeking', () => {
+      videoLogger.info('seeking', 'Sent when a seek operation begins');
+    });
+    element.addEventListener('stalled', () => {
+      videoLogger.info('stalled', 'Sent when the user agent is trying to fetch media data, but data is unexpectedly not forthcoming');
+    });
+    element.addEventListener('suspend', () => {
+      videoLogger.info('suspend', 'Sent when loading of the media is suspended; this may happen either because the download has completed or because it has been paused for any other reason');
+    });
+    element.addEventListener('volumechange', () => {
+      videoLogger.info('volumechange', 'Sent when the audio volume changes (both when the volume is set and when the muted attribute is changed)');
+    });
+    element.addEventListener('waiting', () => {
+      videoLogger.info('waiting', 'Sent when the requested operation (such as playback) is delayed pending the completion of another operation (such as a seek)');
+    });
+  }
+
+            
+                   
+                
+                       
+                      
+                            
+                            
+                            
+                          
+                               
+                               
+}
+
