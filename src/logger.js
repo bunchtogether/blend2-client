@@ -33,7 +33,7 @@ const log = (name:string, level:string, value:any, description?: string) => {
   if (typeof value === 'string') {
     console.log(`%c${name}: %c${value}`, `color:${color}; font-weight: bold`, `color:${color}`);
     if (blendServerDetected) {
-      superagent.post('/api/1.0/log').set('Content-Type', 'application/json').send({ name, level, value, description }).end((error) => {
+      superagent.post('http://127.0.0.1:61340/api/1.0/log').set('Content-Type', 'application/json').send({ name, level, value, description }).end((error) => {
         if (error) {
           console.error('Unable to post to logging API');
           console.error(error);
@@ -46,7 +46,7 @@ const log = (name:string, level:string, value:any, description?: string) => {
       console.log(`%c${name}: %c${line}`, `color:${color}; font-weight: bold`, `color:${color}`);
     });
     if (blendServerDetected) {
-      superagent.post('/api/1.0/log').set('Content-Type', 'application/json').send({ name, level, value: sanitizedValue, description }).end((error) => {
+      superagent.post('http://127.0.0.1:61340/api/1.0/log').set('Content-Type', 'application/json').send({ name, level, value: sanitizedValue, description }).end((error) => {
         if (error) {
           console.error('Unable to post to logging API');
           console.error(error);
