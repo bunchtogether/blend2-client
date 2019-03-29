@@ -62,17 +62,23 @@ export default class BlendClient extends EventEmitter {
         }
       }
     };
-    element.addEventListener('waiting', () => {
-      ensureRecovery();
-      if (!this.videoBuffer) {
-        return;
-      }
-      clearInterval(nextBufferedSegmentInterval);
-      nextBufferedSegmentInterval = setInterval(() => {
+    const addEnsureRecoveryOnWaiting = () => {
+      element.addEventListener('waiting', () => {
+        ensureRecovery();
+        if (!this.videoBuffer) {
+          return;
+        }
+        clearInterval(nextBufferedSegmentInterval);
+        nextBufferedSegmentInterval = setInterval(() => {
+          skipToNextBufferedSegment();
+        }, 100);
         skipToNextBufferedSegment();
-      }, 100);
-      skipToNextBufferedSegment();
-    });
+      });      
+      element.removeEventListener('canplay', addEnsureRecoveryOnWaiting);
+      element.removeEventListener('playing', addEnsureRecoveryOnWaiting);
+    }
+    element.addEventListener('canplay', addEnsureRecoveryOnWaiting);
+    element.addEventListener('playing', addEnsureRecoveryOnWaiting);
     element.addEventListener('canplay', () => {
       clearInterval(nextBufferedSegmentInterval);
       element.play();
