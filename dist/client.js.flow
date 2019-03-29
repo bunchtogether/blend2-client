@@ -35,7 +35,7 @@ export default class BlendClient extends EventEmitter {
     this.videoBufferLogger = makeBlendLogger(`${streamUrl} Video Source Buffer`);
     this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
     this.setupElementLogging(element);
-    this.openWebSocket(streamUrl);
+    this.ready = this.openWebSocket(streamUrl);
     this.setupMediaSource(element);
     element.addEventListener('error', (event:Event) => {
       if (event.type !== 'error') {
@@ -73,10 +73,10 @@ export default class BlendClient extends EventEmitter {
           skipToNextBufferedSegment();
         }, 100);
         skipToNextBufferedSegment();
-      });      
+      });
       element.removeEventListener('canplay', addEnsureRecoveryOnWaiting);
       element.removeEventListener('playing', addEnsureRecoveryOnWaiting);
-    }
+    };
     element.addEventListener('canplay', addEnsureRecoveryOnWaiting);
     element.addEventListener('playing', addEnsureRecoveryOnWaiting);
     element.addEventListener('canplay', () => {
@@ -422,5 +422,6 @@ export default class BlendClient extends EventEmitter {
   videoBufferLogger: Object;
   webSocketLogger: Object;
   videoQueue:Array<Uint8Array>;
+  ready: Promise<void>;
 }
 
