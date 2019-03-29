@@ -36,6 +36,9 @@ export default class BlendClient extends EventEmitter {
     this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
     this.setupElementLogging(element);
     this.ready = this.openWebSocket(streamUrl);
+    this.ready.catch((error) => {
+      this.webSocketLogger.error(error.message);
+    });
     this.setupMediaSource(element);
     element.addEventListener('error', (event      ) => {
       if (event.type !== 'error') {
@@ -167,16 +170,6 @@ export default class BlendClient extends EventEmitter {
 
     ws.binaryType = 'arraybuffer';
 
-    ws.onopen = () => {
-      this.emit('open');
-      this.ws = ws;
-      heartbeatInterval = setInterval(() => {
-        if (ws.readyState === 1) {
-          ws.send(new Uint8Array([]));
-        }
-      }, 5000);
-    };
-
     ws.onclose = (event) => {
       clearInterval(heartbeatInterval);
       const { wasClean, reason, code } = event;
@@ -204,10 +197,28 @@ export default class BlendClient extends EventEmitter {
       }
     };
 
-    ws.onerror = (event) => {
-      this.webSocketLogger.error(event);
-      this.emit('error', event);
-    };
+    await new Promise((resolve, reject) => {
+      ws.onerror = (event) => {
+        this.webSocketLogger.error(`Unable to open socket to ${streamUrl}`);
+        this.emit('error', event);
+        reject(new Error('Unable to open'));
+      };
+
+      ws.onopen = () => {
+        this.emit('open');
+        this.ws = ws;
+        heartbeatInterval = setInterval(() => {
+          if (ws.readyState === 1) {
+            ws.send(new Uint8Array([]));
+          }
+        }, 5000);
+        ws.onerror = (event) => {
+          this.webSocketLogger.error(event);
+          this.emit('error', event);
+        };
+        resolve();
+      };
+    });
   }
 
   /**
