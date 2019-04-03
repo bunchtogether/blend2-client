@@ -29,6 +29,8 @@ export default class BlendClient extends EventEmitter {
     this.streamUrl = streamUrl;
     this.videoQueue = [];
     this.resetInProgress = false;
+    this.reconnectAttempt = 0;
+    this.reconnectAttemptResetTimeout = null;
     const clientLogger = makeBlendLogger(`${streamUrl} Client`);
     this.videoLogger = makeBlendLogger(`${streamUrl} Video Element`);
     this.mediaSourceLogger = makeBlendLogger(`${streamUrl} Media Source`);
@@ -79,9 +81,11 @@ export default class BlendClient extends EventEmitter {
       });
       element.removeEventListener('canplay', addEnsureRecoveryOnWaiting);
       element.removeEventListener('playing', addEnsureRecoveryOnWaiting);
+      element.removeEventListener('play', addEnsureRecoveryOnWaiting);
     };
     element.addEventListener('canplay', addEnsureRecoveryOnWaiting);
     element.addEventListener('playing', addEnsureRecoveryOnWaiting);
+    element.addEventListener('play', addEnsureRecoveryOnWaiting);
     element.addEventListener('canplay', () => {
       clearInterval(nextBufferedSegmentInterval);
       element.play();
@@ -94,6 +98,9 @@ export default class BlendClient extends EventEmitter {
     };
     let recoveryTimeout = null;
     const ensureRecovery = () => {
+      if (this.reconnectAttemptResetTimeout) {
+        clearTimeout(this.reconnectAttemptResetTimeout);
+      }
       if (elementIsPlaying()) {
         clientLogger.info('Element is playing, skipping recovery detection');
         return;
@@ -112,7 +119,17 @@ export default class BlendClient extends EventEmitter {
         recoveryTimeout = null;
         element.removeEventListener('play', handlePlay);
         element.removeEventListener('playing', handlePlay);
+        this.reconnectAttemptResetTimeout = setTimeout(() => {
+          this.reconnectAttempt = 0;
+        }, 15000);
       };
+      clientLogger.info(`Reconnect attempt: ${this.reconnectAttempt}`);
+      if (this.reconnectAttempt > 3) {
+        clientLogger.info(`Attempting to play fallback stream after ${this.reconnectAttempt} attempts`);
+        // Emit message to handle fallback url
+        this.emit('handleFallbackStream', { });
+        this.reconnectAttempt = 0;
+      }
       recoveryTimeout = setTimeout(() => {
         if (elementIsPlaying()) {
           clientLogger.info('Detected playing element after recovery timeout');
@@ -145,6 +162,7 @@ export default class BlendClient extends EventEmitter {
     this.resetInProgress = true;
     await this.close();
     this.resetInProgress = false;
+    this.reconnectAttempt += 1;
     this.openWebSocket(this.streamUrl);
     this.setupMediaSource(this.element);
   }
