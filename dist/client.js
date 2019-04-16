@@ -148,9 +148,13 @@ export default class BlendClient extends EventEmitter {
   }
 
   async close() {
-    await this.closeWebSocket();
     this.element.removeAttribute('src');
     this.element.load();
+    try {
+      await this.closeWebSocket();
+    } catch (error) {
+      console.log(`Error closing websocket: ${error.message}`);
+    }
     delete this.videoBuffer;
     this.videoQueue = [];
   }
@@ -216,13 +220,23 @@ export default class BlendClient extends EventEmitter {
     };
 
     await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        const error = new Error('Unable to open websocket, timeout after 10 seconds');
+        this.emit('error', error);
+        ws.onerror = () => {};
+        ws.onopen = () => {};
+        reject(error);
+      }, 10000);
+
       ws.onerror = (event) => {
+        clearTimeout(timeout);
         this.webSocketLogger.error(`Unable to open socket to ${streamUrl}`);
         this.emit('error', event);
         reject(new Error('Unable to open'));
       };
 
       ws.onopen = () => {
+        clearTimeout(timeout);
         this.emit('open');
         this.ws = ws;
         heartbeatInterval = setInterval(() => {
@@ -246,21 +260,30 @@ export default class BlendClient extends EventEmitter {
    * @return {Promise<void>}
    */
   async closeWebSocket(code         , reason         ) {
-    if (!this.ws) {
+    const ws = this.ws;
+    if (!ws) {
       return;
     }
+    ws.onmessage = () => {};
     await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.removeListener('error', onError);
+        this.removeListener('close', onClose);
+        reject(new Error('Unable to close websocket, timeout after 5 seconds'));
+      }, 5000);
       const onClose = () => {
+        clearTimeout(timeout);
         this.removeListener('error', onError);
         resolve();
       };
       const onError = (event       ) => {
+        clearTimeout(timeout);
         this.removeListener('close', onClose);
         reject(event);
       };
       this.once('error', onError);
       this.once('close', onClose);
-      this.ws.close(code, reason);
+      ws.close(code, reason);
     });
   }
 
