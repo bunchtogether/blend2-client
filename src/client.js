@@ -96,7 +96,7 @@ export default class BlendClient extends EventEmitter {
       }
       return !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2);
     };
-    let recoveryTimeout = null;
+    this.recoveryTimeout = null;
     const ensureRecovery = () => {
       if (this.reconnectAttemptResetTimeout) {
         clearTimeout(this.reconnectAttemptResetTimeout);
@@ -105,7 +105,7 @@ export default class BlendClient extends EventEmitter {
         clientLogger.info('Element is playing, skipping recovery detection');
         return;
       }
-      if (recoveryTimeout || this.resetInProgress) {
+      if (this.recoveryTimeout || this.resetInProgress) {
         clientLogger.info('Recovery detection already in progress, skipping');
         return;
       }
@@ -113,10 +113,10 @@ export default class BlendClient extends EventEmitter {
       const recoveryStart = Date.now();
       const handlePlay = () => {
         clientLogger.info(`Recovered after ${Math.round((Date.now() - recoveryStart) / 100) / 10} seconds`);
-        if (recoveryTimeout) {
-          clearTimeout(recoveryTimeout);
+        if (this.recoveryTimeout) {
+          clearTimeout(this.recoveryTimeout);
         }
-        recoveryTimeout = null;
+        this.recoveryTimeout = null;
         element.removeEventListener('play', handlePlay);
         element.removeEventListener('playing', handlePlay);
         this.reconnectAttemptResetTimeout = setTimeout(() => {
@@ -130,13 +130,13 @@ export default class BlendClient extends EventEmitter {
         this.emit('handleFallbackStream', { });
         this.reconnectAttempt = 0;
       }
-      recoveryTimeout = setTimeout(() => {
+      this.recoveryTimeout = setTimeout(() => {
         if (elementIsPlaying()) {
           clientLogger.info('Detected playing element after recovery timeout');
           handlePlay();
           return;
         }
-        recoveryTimeout = null;
+        this.recoveryTimeout = null;
         clientLogger.error('Timeout after attempted recovery');
         this.reset();
         element.removeEventListener('play', handlePlay);
@@ -148,6 +148,9 @@ export default class BlendClient extends EventEmitter {
   }
 
   async close() {
+    if (this.recoveryTimeout) {
+      clearTimeout(this.recoveryTimeout);
+    }
     this.element.removeAttribute('src');
     this.element.load();
     try {
@@ -475,5 +478,6 @@ export default class BlendClient extends EventEmitter {
   webSocketLogger: Object;
   videoQueue:Array<Uint8Array>;
   ready: Promise<void>;
+  recoveryTimeout: TimeoutID | null;
 }
 
