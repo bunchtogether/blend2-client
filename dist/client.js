@@ -4,6 +4,10 @@ import { EventEmitter } from 'events';
 import WebSocket from 'isomorphic-ws';
 import blendServerDetectedPromise from './server-detection';
 import makeBlendLogger from './logger';
+import CaptionParser from 'mux.js/lib/mp4/caption-parser';
+import mp4Probe from 'mux.js/lib/mp4/probe';
+import { parseBuffer } from 'codem-isoboxer';
+import LruCache from "lru-cache";
 
 const mergeUint8Arrays = (arrays) => {
   let length = 0;
@@ -26,6 +30,8 @@ export default class BlendClient extends EventEmitter {
   constructor(element                  , streamUrl       ) {
     super();
     this.element = element;
+    this.textTracks = new Map();
+    this.textCache = new LruCache({max: 500});
     this.streamUrl = streamUrl;
     this.videoQueue = [];
     this.resetInProgress = false;
@@ -37,6 +43,20 @@ export default class BlendClient extends EventEmitter {
     this.videoBufferLogger = makeBlendLogger(`${streamUrl} Video Source Buffer`);
     this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
     this.setupElementLogging(element);
+    this.loadedMetadataPromise = new Promise((resolve, reject) => {
+      const handleLoadedMetadata = () => {
+        element.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        element.removeEventListener('error', handleError);
+        resolve();
+      };
+      const handleError = () => {
+        element.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        element.removeEventListener('error', handleError);
+        reject(new Error("Unable to load metadata"));
+      }
+      element.addEventListener('loadedmetadata', handleLoadedMetadata);
+      element.addEventListener('error', handleError);
+    })
     this.ready = this.openWebSocket(streamUrl);
     this.ready.catch((error) => {
       this.webSocketLogger.error(error.message);
@@ -148,6 +168,7 @@ export default class BlendClient extends EventEmitter {
   }
 
   async close() {
+    delete this.textTracks;
     this.element.removeAttribute('src');
     this.element.load();
     try {
@@ -189,6 +210,9 @@ export default class BlendClient extends EventEmitter {
     const ws = new WebSocket(address);
 
     let heartbeatInterval;
+    let captionParser = new CaptionParser();
+
+    captionParser.init();
 
     ws.binaryType = 'arraybuffer';
 
@@ -199,24 +223,50 @@ export default class BlendClient extends EventEmitter {
       delete this.ws;
       this.emit('close', code, reason);
     };
-
+    let trackIds;
+    let timescales;
+    let buffered = new Uint8Array();
     ws.onmessage = (event) => {
       const typedArray = new Uint8Array(event.data);
+      const merged = new Uint8Array(buffered.byteLength + typedArray.byteLength);
+      merged.set(buffered, 0);
+      merged.set(typedArray, buffered.byteLength);
+      buffered = merged;
+      if(!trackIds || !timescales) {
+        const checkedTimescales = mp4Probe.timescale(buffered);
+        if(Object.keys(checkedTimescales).length === 0) {
+          return;
+        }
+        timescales = checkedTimescales;
+        trackIds = mp4Probe.videoTrackIds(buffered);
+      }
+      const parsed = parseBuffer(buffered.buffer);
+      if(parsed._incomplete) {
+        return;
+      }
+      const parsedCaptions = captionParser.parse(buffered, trackIds, timescales);
+      if(parsedCaptions) {
+        const { captions } = parsedCaptions;
+        for(const caption of captions) {
+          this.addCaption(caption);
+        }
+      }
       const videoBuffer = this.videoBuffer;
       const videoQueue = this.videoQueue;
       if (videoBuffer) {
         if (videoQueue.length > 0 || videoBuffer.updating) {
-          videoQueue.push(typedArray);
+          videoQueue.push(buffered);
         } else {
           try {
-            videoBuffer.appendBuffer(typedArray);
+            videoBuffer.appendBuffer(buffered);
           } catch (error) {
             this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
           }
         }
       } else {
-        videoQueue.push(typedArray);
+        videoQueue.push(buffered);
       }
+      buffered = new Uint8Array();
     };
 
     await new Promise((resolve, reject) => {
@@ -251,6 +301,21 @@ export default class BlendClient extends EventEmitter {
         resolve();
       };
     });
+  }
+
+  async addCaption({ stream, startTime, endTime, text }                                                                  ) {
+    const cacheKey = `${startTime}:${endTime}:${text}`;
+    if(this.textCache.has(cacheKey)) {
+      return;
+    }
+    this.textCache.set(cacheKey, true);
+    let textTrack = this.textTracks.get(stream);
+    if(!textTrack) {
+      await this.loadedMetadataPromise;
+      textTrack = this.element.addTextTrack("captions", "English", "en");
+      this.textTracks.set(stream, textTrack);
+    }
+    textTrack.addCue(new VTTCue(startTime, endTime, text));
   }
 
   /**
@@ -475,5 +540,8 @@ export default class BlendClient extends EventEmitter {
                           
                                
                        
+                                       
+                                     
+                                       
 }
 
