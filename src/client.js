@@ -1,13 +1,15 @@
 // @flow
 
-import { EventEmitter } from 'events';
+import EventEmitter from 'events';
 import WebSocket from 'isomorphic-ws';
-import blendServerDetectedPromise from './server-detection';
-import makeBlendLogger from './logger';
 import CaptionParser from 'mux.js/lib/mp4/caption-parser';
 import mp4Probe from 'mux.js/lib/mp4/probe';
 import { parseBuffer } from 'codem-isoboxer';
 import LruCache from 'lru-cache';
+import blendServerDetectedPromise from './server-detection';
+import makeBlendLogger from './logger';
+
+const Cue = window.VTTCue || window.TextTrackCue;
 
 const mergeUint8Arrays = (arrays) => {
   let length = 0;
@@ -43,20 +45,6 @@ export default class BlendClient extends EventEmitter {
     this.videoBufferLogger = makeBlendLogger(`${streamUrl} Video Source Buffer`);
     this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
     this.setupElementLogging(element);
-    this.loadedMetadataPromise = new Promise((resolve, reject) => {
-      const handleLoadedMetadata = () => {
-        element.removeEventListener('loadedmetadata', handleLoadedMetadata);
-        element.removeEventListener('error', handleError);
-        resolve();
-      };
-      const handleError = () => {
-        element.removeEventListener('loadedmetadata', handleLoadedMetadata);
-        element.removeEventListener('error', handleError);
-        reject(new Error('Unable to load metadata'));
-      };
-      element.addEventListener('loadedmetadata', handleLoadedMetadata);
-      element.addEventListener('error', handleError);
-    });
     this.ready = this.openWebSocket(streamUrl);
     this.ready.catch((error) => {
       this.webSocketLogger.error(error.message);
@@ -174,7 +162,7 @@ export default class BlendClient extends EventEmitter {
     try {
       await this.closeWebSocket();
     } catch (error) {
-      console.log(`Error closing websocket: ${error.message}`);
+      console.log(`Error closing websocket: ${error.message}`); // eslint-disable-line no-console
     }
     delete this.videoBuffer;
     this.videoQueue = [];
@@ -225,7 +213,7 @@ export default class BlendClient extends EventEmitter {
     };
     let trackIds;
     let timescales;
-    let buffered = new Uint8Array();
+    let buffered = new Uint8Array([]);
     ws.onmessage = (event) => {
       const typedArray = new Uint8Array(event.data);
       const merged = new Uint8Array(buffered.byteLength + typedArray.byteLength);
@@ -241,9 +229,10 @@ export default class BlendClient extends EventEmitter {
         trackIds = mp4Probe.videoTrackIds(buffered);
       }
       const parsed = parseBuffer(buffered.buffer);
-      if (parsed._incomplete) {
+      if (parsed._incomplete) { // eslint-disable-line no-underscore-dangle
         return;
       }
+
       const parsedCaptions = captionParser.parse(buffered, trackIds, timescales);
       if (parsedCaptions) {
         const { captions } = parsedCaptions;
@@ -251,6 +240,7 @@ export default class BlendClient extends EventEmitter {
           this.addCaption(caption);
         }
       }
+
       const videoBuffer = this.videoBuffer;
       const videoQueue = this.videoQueue;
       if (videoBuffer) {
@@ -266,7 +256,7 @@ export default class BlendClient extends EventEmitter {
       } else {
         videoQueue.push(buffered);
       }
-      buffered = new Uint8Array();
+      buffered = new Uint8Array([]);
     };
 
     await new Promise((resolve, reject) => {
@@ -303,7 +293,7 @@ export default class BlendClient extends EventEmitter {
     });
   }
 
-  async addCaption({ stream, startTime, endTime, text }: { stream:string, startTime:number, endTime:number, text:string }) {
+  addCaption({ stream, startTime, endTime, text }: { stream:string, startTime:number, endTime:number, text:string }) {
     const cacheKey = `${startTime}:${endTime}:${text}`;
     if (this.textCache.has(cacheKey)) {
       return;
@@ -311,11 +301,14 @@ export default class BlendClient extends EventEmitter {
     this.textCache.set(cacheKey, true);
     let textTrack = this.textTracks.get(stream);
     if (!textTrack) {
-      await this.loadedMetadataPromise;
       textTrack = this.element.addTextTrack('captions', 'English', 'en');
       this.textTracks.set(stream, textTrack);
     }
-    textTrack.addCue(new VTTCue(startTime, endTime, text));
+    const cue = new Cue(startTime, endTime, text);
+    cue.line = 'auto';
+    cue.lineAlign = 'start';
+    cue.position = 50;
+    textTrack.addCue(cue);
   }
 
   /**
@@ -540,7 +533,6 @@ export default class BlendClient extends EventEmitter {
   webSocketLogger: Object;
   videoQueue:Array<Uint8Array>;
   ready: Promise<void>;
-  loadedMetadataPromise: Promise<void>;
   textTracks: Map<string, TextTrack>;
   textCache: LruCache<string, boolean>;
 }
