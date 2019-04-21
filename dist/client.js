@@ -11,6 +11,8 @@ import makeBlendLogger from './logger';
 
 const Cue = window.VTTCue || window.TextTrackCue;
 
+const isFirefox = navigator.userAgent.match(/Firefox\//);
+
 const mergeUint8Arrays = (arrays) => {
   let length = 0;
   arrays.forEach((item) => {
@@ -305,9 +307,9 @@ export default class BlendClient extends EventEmitter {
       this.textTracks.set(stream, textTrack);
     }
     const cue = new Cue(startTime, endTime, text);
-    cue.line = 'auto';
-    cue.lineAlign = 'start';
-    cue.position = 50;
+    cue.line = 1;
+    cue.align = 'left';
+    cue.position = isFirefox ? 55 : 5;
     textTrack.addCue(cue);
   }
 
@@ -524,6 +526,11 @@ export default class BlendClient extends EventEmitter {
   }
 
             
+                            
+                           
+                           
+                                                 
+                            
                    
                 
                        
