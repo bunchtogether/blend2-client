@@ -302,7 +302,6 @@ export default class BlendClient extends EventEmitter {
     if (this.textCache.has(text)) {
       return;
     }
-    console.log(text);
     this.textCache.set(text, true);
     let textTrack = this.textTracks.get(stream);
     if (!textTrack) {
