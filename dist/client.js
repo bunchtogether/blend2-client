@@ -219,6 +219,7 @@ export default class BlendClient extends EventEmitter {
     let timescales;
     let buffered = new Uint8Array([]);
     ws.onmessage = (event) => {
+      captionParser.clearParsedCaptions();
       const typedArray = new Uint8Array(event.data);
       const merged = new Uint8Array(buffered.byteLength + typedArray.byteLength);
       merged.set(buffered, 0);
@@ -298,11 +299,11 @@ export default class BlendClient extends EventEmitter {
   }
 
   addCaption({ stream, startTime, endTime, text }                                                                  ) {
-    const cacheKey = `${startTime}:${endTime}`;
-    if (this.textCache.has(cacheKey)) {
+    if (this.textCache.has(text)) {
       return;
     }
-    this.textCache.set(cacheKey, true);
+    console.log(text);
+    this.textCache.set(text, true);
     let textTrack = this.textTracks.get(stream);
     if (!textTrack) {
       textTrack = this.element.addTextTrack('captions', 'English', 'en');
