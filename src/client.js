@@ -298,7 +298,7 @@ export default class BlendClient extends EventEmitter {
   }
 
   addCaption({ stream, startTime, endTime, text }: { stream:string, startTime:number, endTime:number, text:string }) {
-    const cacheKey = `${startTime}:${endTime}:${text}`;
+    const cacheKey = `${startTime}:${endTime}`;
     if (this.textCache.has(cacheKey)) {
       return;
     }
