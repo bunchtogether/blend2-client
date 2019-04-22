@@ -158,7 +158,6 @@ export default class BlendClient extends EventEmitter {
   }
 
   async close() {
-    delete this.textTracks;
     if (this.recoveryTimeout) {
       clearTimeout(this.recoveryTimeout);
     }
