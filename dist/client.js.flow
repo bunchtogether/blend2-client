@@ -169,7 +169,7 @@ export default class BlendClient extends EventEmitter {
     try {
       await this.closeWebSocket();
     } catch (error) {
-      console.log(`Error closing websocket: ${error.message}`); // eslint-disable-line no-console
+      this.webSocketLogger.error(`Error closing websocket: ${error.message}`); // eslint-disable-line no-console
     }
     delete this.videoBuffer;
     this.videoQueue = [];
@@ -323,7 +323,6 @@ export default class BlendClient extends EventEmitter {
     }
     if (!merged) {
       ranges.push([startTime, endTime]);
-      this.cueRanges = ranges.slice(0, 100);
     }
     const cue = new Cue(startTime, endTime, text);
     cue.line = 1;
