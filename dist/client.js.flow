@@ -5,7 +5,6 @@ import WebSocket from 'isomorphic-ws';
 import CaptionParser from 'mux.js/lib/mp4/caption-parser';
 import mp4Probe from 'mux.js/lib/mp4/probe';
 import { parseBuffer } from 'codem-isoboxer';
-import LruCache from 'lru-cache';
 import blendServerDetectedPromise from './server-detection';
 import makeBlendLogger from './logger';
 
@@ -27,6 +26,10 @@ const mergeUint8Arrays = (arrays) => {
   return merged;
 };
 
+function intersection(x1:number, x2:number, y1:number, y2:number) {
+  return Math.min(x2, y2) - Math.max(x1, y1);
+}
+
 /**
  * Class representing a Blend Client
  */
@@ -35,7 +38,7 @@ export default class BlendClient extends EventEmitter {
     super();
     this.element = element;
     this.textTracks = new Map();
-    this.textCache = new LruCache({ max: 500 });
+    this.cueRanges = [];
     this.streamUrl = streamUrl;
     this.videoQueue = [];
     this.resetInProgress = false;
@@ -299,14 +302,28 @@ export default class BlendClient extends EventEmitter {
   }
 
   addCaption({ stream, startTime, endTime, text }: { stream:string, startTime:number, endTime:number, text:string }) {
-    if (this.textCache.has(text)) {
-      return;
-    }
-    this.textCache.set(text, true);
     let textTrack = this.textTracks.get(stream);
     if (!textTrack) {
       textTrack = this.element.addTextTrack('captions', 'English', 'en');
       this.textTracks.set(stream, textTrack);
+    }
+    const ranges = this.cueRanges;
+    let merged = false;
+    for (let i = ranges.length; i--;) {
+      const cueRange = ranges[i];
+      const overlap = intersection(cueRange[0], cueRange[1], startTime, endTime);
+      if (overlap >= 0) {
+        cueRange[0] = Math.min(cueRange[0], startTime);
+        cueRange[1] = Math.max(cueRange[1], endTime);
+        merged = true;
+        if ((overlap / (endTime - startTime)) > 0.5) {
+          return;
+        }
+      }
+    }
+    if (!merged) {
+      ranges.push([startTime, endTime]);
+      this.cueRanges = ranges.slice(0, 100);
     }
     const cue = new Cue(startTime, endTime, text);
     cue.line = 1;
@@ -543,7 +560,7 @@ export default class BlendClient extends EventEmitter {
   videoQueue:Array<Uint8Array>;
   ready: Promise<void>;
   textTracks: Map<string, TextTrack>;
-  textCache: LruCache<string, boolean>;
+  cueRanges: Array<[number, number]>;
   recoveryTimeout: TimeoutID | null;
 }
 
