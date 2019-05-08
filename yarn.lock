@@ -4203,10 +4203,10 @@ mute-stream@0.0.7:
   version "0.0.7"
   resolved "https://registry.yarnpkg.com/mute-stream/-/mute-stream-0.0.7.tgz#3075ce93bc21b8fab43e1bc4da7e8115ed1e7bab"
 
-mux.js@^5.1.1:
-  version "5.1.1"
-  resolved "https://registry.yarnpkg.com/mux.js/-/mux.js-5.1.1.tgz#0e95f048b4ac51d413c9ddc2d78e4cefad8d06de"
-  integrity sha512-Mf/UYmh5b8jvUP+jmrTbETnyFZprMdbT0RxKm/lJ/4d2Q3xdc5GaHaRPI1zVV5D3+6uxArVPm78QEb1RsrmaQw==
+mux.js@^5.1.2:
+  version "5.1.2"
+  resolved "https://registry.yarnpkg.com/mux.js/-/mux.js-5.1.2.tgz#74a689784f353806c38406e448fe05cf33f52bd5"
+  integrity sha512-g2YSv+Xtp5Ttp0yl4z+X+dwq/pBWPxd+Rc1H/CyNP0COVyHrTFVLE6fEUw8vK3PuA0ik24H+e94dbPu3vRhbwA==
 
 nan@^2.9.2:
   version "2.13.2"

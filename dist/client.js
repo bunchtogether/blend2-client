@@ -49,6 +49,7 @@ export default class BlendClient extends EventEmitter {
     this.mediaSourceLogger = makeBlendLogger(`${streamUrl} Media Source`);
     this.videoBufferLogger = makeBlendLogger(`${streamUrl} Video Source Buffer`);
     this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
+    this.captionsLogger = makeBlendLogger(`${streamUrl} Captions`);
     this.setupElementLogging(element);
     this.ready = this.openWebSocket(streamUrl);
     this.ready.catch((error) => {
@@ -228,27 +229,33 @@ export default class BlendClient extends EventEmitter {
       merged.set(buffered, 0);
       merged.set(typedArray, buffered.byteLength);
       buffered = merged;
+      const parsed = parseBuffer(buffered.buffer);
+      if (parsed._incomplete) { // eslint-disable-line no-underscore-dangle
+        return;
+      }
       if (!trackIds || !timescales) {
         const checkedTimescales = mp4Probe.timescale(buffered);
         if (Object.keys(checkedTimescales).length === 0) {
           return;
         }
         timescales = checkedTimescales;
-        trackIds = mp4Probe.videoTrackIds(buffered);
-      }
-      const parsed = parseBuffer(buffered.buffer);
-      if (parsed._incomplete) { // eslint-disable-line no-underscore-dangle
-        return;
-      }
-
-      const parsedCaptions = captionParser.parse(buffered, trackIds, timescales);
-      if (parsedCaptions) {
-        const { captions } = parsedCaptions;
-        for (const caption of captions) {
-          this.addCaption(caption);
+        const checkedTrackIds = mp4Probe.videoTrackIds(buffered);
+        if (!checkedTrackIds || checkedTrackIds.length === 0) {
+          return;
         }
+        trackIds = checkedTrackIds;
       }
-
+      try {
+        const parsedCaptions = captionParser.parse(buffered, trackIds, timescales);
+        if (parsedCaptions) {
+          const { captions } = parsedCaptions;
+          for (const caption of captions) {
+            this.addCaption(caption);
+          }
+        }
+      } catch(error) {
+        this.captionsLogger.error(error.message);
+      }
       const videoBuffer = this.videoBuffer;
       const videoQueue = this.videoQueue;
       if (videoBuffer) {
@@ -556,6 +563,7 @@ export default class BlendClient extends EventEmitter {
                             
                             
                           
+                         
                                
                        
                                      
