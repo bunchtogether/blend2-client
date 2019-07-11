@@ -4,11 +4,11 @@
 
 import superagent from 'superagent';
 import { stringify } from 'flatted';
-import blendServerDetectedPromise from './server-detection';
+import { getIsServerAvailable } from './capabilities';
 
 let blendServerDetected = false;
 
-blendServerDetectedPromise.then((exists) => {
+getIsServerAvailable().then((exists) => {
   blendServerDetected = exists;
 });
 
