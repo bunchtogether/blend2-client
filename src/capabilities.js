@@ -5,7 +5,7 @@ import superagent from 'superagent';
 let isServerAvailable = false;
 let isDeviceAvailable = false;
 
-function setCapabilities(responseBody: Object) {
+function setCapabilities(responseBody: Object = {}) {
   isServerAvailable = !!responseBody.isServerAvailable;
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
 }
