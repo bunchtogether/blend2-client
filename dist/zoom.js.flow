@@ -15,17 +15,17 @@ async function post(path: string, data: Object = {}) {
   }
 }
 
-async function startMeeting(meetingNumber: string) {
-  await post('start', { meetingNumber });
+async function join(meetingNumber: string) {
+  await post('join', { meetingNumber });
 }
 
-async function stopMeeting() {
-  await post('stop');
+async function leave() {
+  await post('leave');
 }
 
 const zoom = {
-  startMeeting,
-  stopMeeting,
+  join,
+  leave,
 };
 
 export default zoom;
