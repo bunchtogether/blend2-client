@@ -15,8 +15,8 @@ async function post(path: string, data: Object = {}) {
   }
 }
 
-async function join(meetingNumber: string) {
-  await post('join', { meetingNumber });
+async function join(meetingNumber: string, password: string) {
+  await post('join', { meetingNumber, password });
 }
 
 async function leave() {
