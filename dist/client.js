@@ -4,10 +4,9 @@ import EventEmitter from 'events';
 import WebSocket from 'isomorphic-ws';
 import CaptionParser from 'mux.js/lib/mp4/caption-parser';
 import mp4Probe from 'mux.js/lib/mp4/probe';
-import { getIsServerAvailable } from './capabilities';
 import ISOBoxer from 'codem-isoboxer';
 import murmurHash from 'murmurhash-v3';
-import blendServerDetectedPromise from './server-detection';
+import { getIsServerAvailable } from './capabilities';
 import makeBlendLogger from './logger';
 
 const SYNC_INTERVAL_DURATION = 3000;
