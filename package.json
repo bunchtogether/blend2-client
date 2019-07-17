@@ -64,6 +64,7 @@
     "isomorphic-ws": "^4.0.1",
     "lru-cache": "^5.1.1",
     "mux.js": "^5.1.2",
+    "redux-saga": "^1.0.5",
     "superagent": "^5.0.2"
   }
 }

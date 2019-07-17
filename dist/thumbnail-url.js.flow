@@ -1,9 +1,9 @@
 // @flow
 
-import blendServerDetectedPromise from './server-detection';
+import { detectBlend } from './server-detection';
 
 export default async (streamUrl:string) => {
-  const blendServerDetected = await blendServerDetectedPromise;
+  const blendServerDetected = await detectBlend();
   if (!blendServerDetected) {
     throw new Error('Unable to generate thumbnail, Blend Server not detected');
   }
