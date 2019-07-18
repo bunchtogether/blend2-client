@@ -62,7 +62,7 @@ function intersection(x1:number, x2:number, y1:number, y2:number) {
   return Math.min(x2, y2) - Math.max(x1, y1);
 }
 
-function getDecodeTime(parsed: Object, timescale: number) {
+function getDecodeTime(parsed: Object, timescale: number) { // eslint-disable-line no-unused-vars
   const tfdt = parsed.fetch('tfdt');
   if (tfdt) {
     const { baseMediaDecodeTime } = tfdt;
@@ -320,6 +320,14 @@ export default class BlendClient extends EventEmitter {
         }
         trackIds = checkedTrackIds;
       }
+      const freeBox = parsed.fetch('free');
+      if (freeBox) {
+        const freeBoxData = Buffer.from(freeBox._raw.buffer); // eslint-disable-line no-underscore-dangle
+        if (freeBoxData[8] === 0x3E && freeBoxData[9] === 0x3E) {
+          this.localOffset = freeBoxData.readDoubleBE(10);
+          console.log(`Found local start offset of ${this.localOffset}`);
+        }
+      }
       const skipBox = parsed.fetch('skip');
       if (skipBox && syncData) {
         try {
@@ -332,22 +340,23 @@ export default class BlendClient extends EventEmitter {
           console.error(error);
         }
       }
+      // console.log(parsed);
       if (timescales && timescales['1']) {
         const element = this.element;
         const bufferEnd = element && element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
         const currentTime = element && element.currentTime > 0 ? element.currentTime : null;
         const presentationTime = getPresentationTime(parsed, timescales['1']);
-        const decodeTime = getDecodeTime(parsed, timescales['1']);
         if (presentationTime) {
           if (lastPresentationTime) {
             segmentLength = (presentationTime - lastPresentationTime);
           }
           lastPresentationTime = presentationTime;
         }
-        if (currentTime && presentationTime && decodeTime && bufferEnd) {
-          const adjustedPresentationTime = presentationTime + currentTime - decodeTime;
-          const adjustedBufferEnd = presentationTime + bufferEnd - decodeTime;
-          syncData = { date: new Date(), timestamp: adjustedPresentationTime, maxTimestamp: adjustedBufferEnd, hash: this.syncHash, offset: presentationTime - decodeTime };
+        const localOffset = this.localOffset;
+        if (currentTime && localOffset && bufferEnd) {
+          const adjustedPresentationTime = localOffset + currentTime;
+          const adjustedBufferEnd = localOffset + bufferEnd;
+          syncData = { date: new Date(), timestamp: adjustedPresentationTime, maxTimestamp: adjustedBufferEnd, hash: this.syncHash };
         }
       }
       try {
@@ -392,7 +401,11 @@ export default class BlendClient extends EventEmitter {
       if (!element) {
         return;
       }
-      const { date, timestamp, maxTimestamp, hash, offset } = syncData;
+      const localOffset = this.localOffset;
+      if (!localOffset) {
+        return;
+      }
+      const { date, timestamp, maxTimestamp, hash } = syncData;
       ws.send(serializeBlendBox(date, timestamp, maxTimestamp, hash));
       remoteSyncData.push([date, timestamp, maxTimestamp]);
       const now = new Date();
@@ -412,17 +425,17 @@ export default class BlendClient extends EventEmitter {
         return;
       }
       clearTimeout(this.resetPlaybackRateTimeout);
-      const remoteOffset = element.currentTime + offset - targetTimestamp;
+      const remoteOffset = element.currentTime + localOffset - targetTimestamp;
       const absoluteRemoteOffset = Math.abs(remoteOffset);
       if (absoluteRemoteOffset > 0.1) {
         if (remoteOffset > 0) {
-          element.playbackRate = 0.9;
+          element.playbackRate = 0.75;
         } else {
-          element.playbackRate = 1.1;
+          element.playbackRate = 1.25;
         }
         this.resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
-        }, 1000 * Math.abs(remoteOffset) / 0.1);
+        }, 1000 * Math.abs(remoteOffset) / 0.25);
       } else if (absoluteRemoteOffset > 0.001) {
         if (remoteOffset > 0) {
           element.playbackRate = 0.99;
@@ -689,7 +702,7 @@ export default class BlendClient extends EventEmitter {
       videoLogger.info('playing', 'Sent when the media has enough data to start playing, after the play event, but also when recovering from being stalled, when looping media restarts, and after seeked, if it was playing before seeking');
     });
     element.addEventListener('ratechange', () => {
-      videoLogger.info('ratechange', 'Sent when the playback speed changes');
+      videoLogger.info(`ratechange: ${element.playbackRate}`, 'Sent when the playback speed changes');
     });
     element.addEventListener('seeked', () => {
       videoLogger.info('seeked', 'Sent when a seek operation completes');
@@ -714,6 +727,7 @@ export default class BlendClient extends EventEmitter {
   id:string;
   syncHash: number;
   syncInterval: IntervalID;
+  localOffset: number;
   resetPlaybackRateTimeout: TimeoutID;
   element: HTMLVideoElement;
   resetInProgress: boolean;
