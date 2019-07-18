@@ -170,18 +170,12 @@ export default class BlendClient extends EventEmitter {
     element.addEventListener('pause', () => {
       clearInterval(this.syncInterval);
     });
-    const elementIsPlaying = () => {
-      if (!element) {
-        return false;
-      }
-      return !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2);
-    };
     this.recoveryTimeout = null;
     const ensureRecovery = () => {
       if (this.reconnectAttemptResetTimeout) {
         clearTimeout(this.reconnectAttemptResetTimeout);
       }
-      if (elementIsPlaying()) {
+      if (this.elementIsPlaying()) {
         clientLogger.info('Element is playing, skipping recovery detection');
         return;
       }
@@ -211,7 +205,7 @@ export default class BlendClient extends EventEmitter {
         this.reconnectAttempt = 0;
       }
       this.recoveryTimeout = setTimeout(() => {
-        if (elementIsPlaying()) {
+        if (this.elementIsPlaying()) {
           clientLogger.info('Detected playing element after recovery timeout');
           handlePlay();
           return;
@@ -225,6 +219,14 @@ export default class BlendClient extends EventEmitter {
       element.addEventListener('play', handlePlay);
       element.addEventListener('playing', handlePlay);
     };
+  }
+
+  elementIsPlaying() {
+    const element = this.element;
+    if (!element) {
+      return false;
+    }
+    return !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2);
   }
 
   async close() {
@@ -289,13 +291,94 @@ export default class BlendClient extends EventEmitter {
       delete this.ws;
       this.emit('close', code, reason);
     };
+
     let trackIds;
     let timescales;
     let buffered = new Uint8Array([]);
     let lastPresentationTime;
     let segmentLength;
-    let syncData;
     let remoteSyncData = [];
+
+    const syncToOffset = (remoteOffset       ) => {
+      const element = this.element;
+      if (!element) {
+        return;
+      }
+      const absoluteRemoteOffset = Math.abs(remoteOffset);
+      clearTimeout(this.resetPlaybackRateTimeout);
+      if (absoluteRemoteOffset < 0.001) {
+        element.playbackRate = 1;
+        return;
+      }
+      this.videoLogger.info(`Adjusting for ${remoteOffset} second sync offset`);
+      const speed = remoteOffset < 0 ? (1 + absoluteRemoteOffset) : 1 / (1 + absoluteRemoteOffset);
+      element.playbackRate = speed;
+      this.resetPlaybackRateTimeout = setTimeout(() => {
+        element.playbackRate = 1;
+      }, 1000);
+    };
+    const el = this.element;
+    if (el) {
+      const sendInitialSyncInformation = () => {
+        console.log('SEND INITIAL');
+        el.removeEventListener('playing', sendInitialSyncInformation);
+        sendSyncInformation();
+      };
+      el.addEventListener('playing', sendInitialSyncInformation);
+    }
+    const sendSyncInformation = () => {
+      const element = this.element;
+      if (!element) {
+        console.log('NO ELEMENT');
+        return;
+      }
+      if (!this.elementIsPlaying()) {
+        console.log('NOT PLAYING');
+        return;
+      }
+      const localOffset = this.localOffset;
+      if (!localOffset) {
+        console.log('NO LOCAL OFFSET');
+        return;
+      }
+      const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
+      const currentTime = element.currentTime > 0 ? element.currentTime : 0;
+      if (!currentTime || !bufferEnd) {
+        console.log('NO CURRENT TIME');
+        return;
+      }
+      if (!bufferEnd) {
+        console.log('NO BUFFER END');
+        return;
+      }
+      if (!ws || ws.readyState !== 1) {
+        console.log('NO WEBSOCKET');
+        return;
+      }
+      const now = new Date();
+      const adjustedPresentationTime = localOffset + currentTime;
+      const adjustedBufferEnd = localOffset + bufferEnd;
+      ws.send(serializeBlendBox(now, adjustedPresentationTime, adjustedBufferEnd, this.syncHash));
+      if (!segmentLength) {
+        console.log('NO SEGMENT LENGTH');
+        return;
+      }
+      remoteSyncData = remoteSyncData.filter((x) => now - x[0] < SYNC_INTERVAL_DURATION * 5);
+      if (remoteSyncData.length === 0) {
+        console.log('NO REMOTE SYNC DATA');
+        return;
+      }
+      const targetTimestamp = Math.max(...remoteSyncData.map((x) => {
+        const time = x[1] + (now - x[0]) / 1000;
+        return time;
+      }).filter((time) => time < adjustedBufferEnd - segmentLength));
+      if (isNaN(targetTimestamp) || targetTimestamp === -Infinity) {
+        console.log('NO TARGET TIMESTAMP');
+        return;
+      }
+      const remoteOffset = element.currentTime + localOffset - targetTimestamp;
+      syncToOffset(remoteOffset);
+    };
 
     ws.onmessage = (event) => {
       captionParser.clearParsedCaptions();
@@ -308,18 +391,6 @@ export default class BlendClient extends EventEmitter {
       if (parsed._incomplete) { // eslint-disable-line no-underscore-dangle
         return;
       }
-      if (!trackIds || !timescales) {
-        const checkedTimescales = mp4Probe.timescale(buffered);
-        if (Object.keys(checkedTimescales).length === 0) {
-          return;
-        }
-        timescales = checkedTimescales;
-        const checkedTrackIds = mp4Probe.videoTrackIds(buffered);
-        if (!checkedTrackIds || checkedTrackIds.length === 0) {
-          return;
-        }
-        trackIds = checkedTrackIds;
-      }
       const freeBox = parsed.fetch('free');
       if (freeBox) {
         const freeBoxData = Buffer.from(freeBox._raw.buffer); // eslint-disable-line no-underscore-dangle
@@ -328,23 +399,17 @@ export default class BlendClient extends EventEmitter {
           console.log(`Found local start offset of ${this.localOffset}`);
         }
       }
-      const skipBox = parsed.fetch('skip');
-      if (skipBox && syncData) {
-        try {
-          const [date, timestamp, maxTimestamp, hash] = deserializeBlendBox(Buffer.from(skipBox._raw.buffer)); // eslint-disable-line no-underscore-dangle
-          if (syncData.hash === hash) {
-            remoteSyncData.push([date, timestamp, maxTimestamp]);
+      if (!trackIds || !timescales) {
+        const checkedTimescales = mp4Probe.timescale(buffered);
+        if (Object.keys(checkedTimescales).length > 0) {
+          timescales = checkedTimescales;
+          const checkedTrackIds = mp4Probe.videoTrackIds(buffered);
+          if (checkedTrackIds && checkedTrackIds.length === 0) {
+            trackIds = checkedTrackIds;
           }
-        } catch (error) {
-          console.log('Unable to parse sync message');
-          console.error(error);
         }
       }
-      // console.log(parsed);
       if (timescales && timescales['1']) {
-        const element = this.element;
-        const bufferEnd = element && element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
-        const currentTime = element && element.currentTime > 0 ? element.currentTime : null;
         const presentationTime = getPresentationTime(parsed, timescales['1']);
         if (presentationTime) {
           if (lastPresentationTime) {
@@ -352,11 +417,17 @@ export default class BlendClient extends EventEmitter {
           }
           lastPresentationTime = presentationTime;
         }
-        const localOffset = this.localOffset;
-        if (currentTime && localOffset && bufferEnd) {
-          const adjustedPresentationTime = localOffset + currentTime;
-          const adjustedBufferEnd = localOffset + bufferEnd;
-          syncData = { date: new Date(), timestamp: adjustedPresentationTime, maxTimestamp: adjustedBufferEnd, hash: this.syncHash };
+      }
+      const skipBox = parsed.fetch('skip');
+      if (skipBox) {
+        try {
+          const [date, timestamp, maxTimestamp, hash] = deserializeBlendBox(Buffer.from(skipBox._raw.buffer)); // eslint-disable-line no-underscore-dangle
+          if (this.syncHash === hash) {
+            remoteSyncData.push([date, timestamp, maxTimestamp]);
+          }
+        } catch (error) {
+          console.log('Unable to parse sync message');
+          console.error(error);
         }
       }
       try {
@@ -387,67 +458,7 @@ export default class BlendClient extends EventEmitter {
       }
       buffered = new Uint8Array([]);
     };
-    this.syncInterval = setInterval(() => {
-      if (!ws || ws.readyState !== 1) {
-        return;
-      }
-      if (!syncData) {
-        return;
-      }
-      if (!segmentLength) {
-        return;
-      }
-      const element = this.element;
-      if (!element) {
-        return;
-      }
-      const localOffset = this.localOffset;
-      if (!localOffset) {
-        return;
-      }
-      const { date, timestamp, maxTimestamp, hash } = syncData;
-      ws.send(serializeBlendBox(date, timestamp, maxTimestamp, hash));
-      remoteSyncData.push([date, timestamp, maxTimestamp]);
-      const now = new Date();
-      remoteSyncData = remoteSyncData.filter((x) => now - x[0] < SYNC_INTERVAL_DURATION * 5);
-      if (remoteSyncData.length === 0) {
-        return;
-      }
-      const startOfLastSegment = Math.min(...remoteSyncData.map((x) => {
-        const estimatedNewSegments = Math.floor((now - x[0]) / 1000 / segmentLength);
-        return x[2] - segmentLength + estimatedNewSegments * segmentLength;
-      }));
-      const targetTimestamp = Math.max(...remoteSyncData.map((x) => {
-        const time = x[1] + (now - x[0]) / 1000;
-        return time;
-      }).filter((time) => time < startOfLastSegment));
-      if (isNaN(targetTimestamp) || targetTimestamp === -Infinity) {
-        return;
-      }
-      clearTimeout(this.resetPlaybackRateTimeout);
-      const remoteOffset = element.currentTime + localOffset - targetTimestamp;
-      const absoluteRemoteOffset = Math.abs(remoteOffset);
-      if (absoluteRemoteOffset > 0.1) {
-        if (remoteOffset > 0) {
-          element.playbackRate = 0.75;
-        } else {
-          element.playbackRate = 1.25;
-        }
-        this.resetPlaybackRateTimeout = setTimeout(() => {
-          element.playbackRate = 1;
-        }, 1000 * Math.abs(remoteOffset) / 0.25);
-      } else if (absoluteRemoteOffset > 0.001) {
-        if (remoteOffset > 0) {
-          element.playbackRate = 0.99;
-        } else {
-          element.playbackRate = 1.01;
-        }
-        this.resetPlaybackRateTimeout = setTimeout(() => {
-          element.playbackRate = 1;
-        }, 1000 * absoluteRemoteOffset / 0.01);
-      }
-    }, SYNC_INTERVAL_DURATION);
-
+    this.syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         const error = new Error('Unable to open websocket, timeout after 10 seconds');
