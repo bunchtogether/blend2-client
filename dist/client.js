@@ -6,10 +6,13 @@ import CaptionParser from 'mux.js/lib/mp4/caption-parser';
 import mp4Probe from 'mux.js/lib/mp4/probe';
 import ISOBoxer from 'codem-isoboxer';
 import murmurHash from 'murmurhash-v3';
+import { debounce } from 'lodash';
 import { getIsServerAvailable } from './capabilities';
 import makeBlendLogger from './logger';
 
 const SYNC_INTERVAL_DURATION = 3000;
+const MP4A = Buffer.from([0x6d, 0x70, 0x34, 0x61]); // mp4a
+const AVCC = Buffer.from([0x61, 0x76, 0x63, 0x43]); // avcC
 
 ISOBoxer.addBoxProcessor('prft', function () {
   this._procFullBox(); // eslint-disable-line no-underscore-dangle
@@ -98,7 +101,7 @@ function getPresentationTime(parsed        , timescale        ) {
 export default class BlendClient extends EventEmitter {
   constructor(element                  , streamUrl       ) {
     super();
-    this.syncHash = murmurHash(streamUrl);
+    this.syncHash = 1234; // murmurHash(streamUrl);
     this.element = element;
     this.textTracks = new Map();
     this.cueRanges = [];
@@ -118,7 +121,6 @@ export default class BlendClient extends EventEmitter {
     this.ready.catch((error) => {
       this.webSocketLogger.error(error.message);
     });
-    this.setupMediaSource(element);
     element.addEventListener('error', (event      ) => {
       if (event.type !== 'error') {
         return;
@@ -257,7 +259,6 @@ export default class BlendClient extends EventEmitter {
     this.resetInProgress = false;
     this.reconnectAttempt += 1;
     this.openWebSocket(this.streamUrl);
-    this.setupMediaSource(this.element);
   }
 
   /**
@@ -299,73 +300,69 @@ export default class BlendClient extends EventEmitter {
     let segmentLength;
     let remoteSyncData = [];
 
-    const syncToOffset = (remoteOffset       ) => {
-      const element = this.element;
-      if (!element) {
-        return;
-      }
-      const absoluteRemoteOffset = Math.abs(remoteOffset);
-      clearTimeout(this.resetPlaybackRateTimeout);
-      if (absoluteRemoteOffset < 0.001) {
-        element.playbackRate = 1;
-        return;
-      }
-      this.videoLogger.info(`Adjusting for ${remoteOffset} second sync offset`);
-      const speed = remoteOffset < 0 ? (1 + absoluteRemoteOffset) : 1 / (1 + absoluteRemoteOffset);
-      element.playbackRate = speed;
-      this.resetPlaybackRateTimeout = setTimeout(() => {
-        element.playbackRate = 1;
-      }, 1000);
-    };
+
     const el = this.element;
     if (el) {
       const sendInitialSyncInformation = () => {
-        console.log('SEND INITIAL');
         el.removeEventListener('playing', sendInitialSyncInformation);
         sendSyncInformation();
       };
       el.addEventListener('playing', sendInitialSyncInformation);
     }
+
     const sendSyncInformation = () => {
       const element = this.element;
       if (!element) {
-        console.log('NO ELEMENT');
         return;
       }
       if (!this.elementIsPlaying()) {
-        console.log('NOT PLAYING');
         return;
       }
       const localOffset = this.localOffset;
       if (!localOffset) {
-        console.log('NO LOCAL OFFSET');
         return;
       }
       const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
       const currentTime = element.currentTime > 0 ? element.currentTime : 0;
       if (!currentTime || !bufferEnd) {
-        console.log('NO CURRENT TIME');
         return;
       }
       if (!bufferEnd) {
-        console.log('NO BUFFER END');
         return;
       }
       if (!ws || ws.readyState !== 1) {
-        console.log('NO WEBSOCKET');
         return;
       }
       const now = new Date();
       const adjustedPresentationTime = localOffset + currentTime;
       const adjustedBufferEnd = localOffset + bufferEnd;
       ws.send(serializeBlendBox(now, adjustedPresentationTime, adjustedBufferEnd, this.syncHash));
-      if (!segmentLength) {
-        console.log('NO SEGMENT LENGTH');
+    };
+
+    const syncWithRemote = debounce(() => {
+      const element = this.element;
+      if (!element) {
         return;
       }
+      if (!this.elementIsPlaying()) {
+        return;
+      }
+      const localOffset = this.localOffset;
+      if (!localOffset) {
+        return;
+      }
+      const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
+      const currentTime = element.currentTime > 0 ? element.currentTime : 0;
+      if (!currentTime || !bufferEnd) {
+        return;
+      }
+      if (!segmentLength) {
+        return;
+      }
+      const now = new Date();
+      const adjustedBufferEnd = localOffset + bufferEnd;
       remoteSyncData = remoteSyncData.filter((x) => now - x[0] < SYNC_INTERVAL_DURATION * 5);
       if (remoteSyncData.length === 0) {
-        console.log('NO REMOTE SYNC DATA');
         return;
       }
       const targetTimestamp = Math.max(...remoteSyncData.map((x) => {
@@ -373,12 +370,48 @@ export default class BlendClient extends EventEmitter {
         return time;
       }).filter((time) => time < adjustedBufferEnd - segmentLength));
       if (isNaN(targetTimestamp) || targetTimestamp === -Infinity) {
-        console.log('NO TARGET TIMESTAMP');
         return;
       }
-      const remoteOffset = element.currentTime + localOffset - targetTimestamp;
-      syncToOffset(remoteOffset);
-    };
+      const remoteOffset = currentTime + localOffset - targetTimestamp;
+      const absoluteRemoteOffset = Math.abs(remoteOffset);
+      clearTimeout(this.resetPlaybackRateTimeout);
+      if (absoluteRemoteOffset < 0.05) {
+        element.playbackRate = 1;
+        return;
+      }
+      this.videoLogger.info(`Adjusting for ${remoteOffset} second sync offset`);
+      if (absoluteRemoteOffset < 0.05) {
+        if (remoteOffset > 0) {
+          element.playbackRate = 0.99;
+        } else {
+          element.playbackRate = 1.01;
+        }
+        this.resetPlaybackRateTimeout = setTimeout(() => {
+          element.playbackRate = 1;
+        }, 1000 * absoluteRemoteOffset / 0.01);
+        return;
+      }
+      const speed = remoteOffset < 0 ? (1 + absoluteRemoteOffset) : 1 / (1 + absoluteRemoteOffset);
+      if(speed > 5) {
+        element.playbackRate = 5;
+        this.resetPlaybackRateTimeout = setTimeout(() => {
+          element.playbackRate = 1;
+        }, 1000 * absoluteRemoteOffset / 5);
+      } else if(speed < 0.20) {
+        element.playbackRate = 0.20;
+        this.resetPlaybackRateTimeout = setTimeout(() => {
+          element.playbackRate = 1;
+        }, 1000 * absoluteRemoteOffset / 5);
+      } else {
+        element.playbackRate = speed;
+        this.resetPlaybackRateTimeout = setTimeout(() => {
+          element.playbackRate = 1;
+        }, 1000);   
+      }
+    }, 100);
+
+
+    let initializedMediaSource = false;
 
     ws.onmessage = (event) => {
       captionParser.clearParsedCaptions();
@@ -391,12 +424,19 @@ export default class BlendClient extends EventEmitter {
       if (parsed._incomplete) { // eslint-disable-line no-underscore-dangle
         return;
       }
+      if(!initializedMediaSource) {
+        const moov = parsed.fetch('moov');
+        if(!moov) {
+          return;
+        }
+        this.setupMediaSource(Buffer.from(buffered));
+        initializedMediaSource = true;
+      }
       const freeBox = parsed.fetch('free');
       if (freeBox) {
         const freeBoxData = Buffer.from(freeBox._raw.buffer); // eslint-disable-line no-underscore-dangle
         if (freeBoxData[8] === 0x3E && freeBoxData[9] === 0x3E) {
           this.localOffset = freeBoxData.readDoubleBE(10);
-          console.log(`Found local start offset of ${this.localOffset}`);
         }
       }
       if (!trackIds || !timescales) {
@@ -424,9 +464,10 @@ export default class BlendClient extends EventEmitter {
           const [date, timestamp, maxTimestamp, hash] = deserializeBlendBox(Buffer.from(skipBox._raw.buffer)); // eslint-disable-line no-underscore-dangle
           if (this.syncHash === hash) {
             remoteSyncData.push([date, timestamp, maxTimestamp]);
+            syncWithRemote();
           }
         } catch (error) {
-          console.log('Unable to parse sync message');
+          this.webSocketLogger.error('Unable to parse sync message');
           console.error(error);
         }
       }
@@ -458,7 +499,12 @@ export default class BlendClient extends EventEmitter {
       }
       buffered = new Uint8Array([]);
     };
-    this.syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
+
+    const now = Date.now();
+    this.startSyncIntervalTimeout = setTimeout(() => {
+      this.syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
+    }, SYNC_INTERVAL_DURATION - now % SYNC_INTERVAL_DURATION);
+
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         const error = new Error('Unable to open websocket, timeout after 10 seconds');
@@ -557,7 +603,25 @@ export default class BlendClient extends EventEmitter {
     });
   }
 
-  async setupMediaSource(element                  ) {
+  async setupMediaSource(buffer        ) {
+    const element = this.element;
+    if(!element) {
+      this.videoLogger.error('Unable to setup media source, element does not exist');
+      return;
+    }
+    let audioString = '';
+    let mimeType = 'video/mp4; codecs="avc1.64001f, mp4a.40.2"';
+    if (buffer.indexOf(MP4A) !== -1) {
+      audioString = ', mp4a.40.2';
+    }
+    let index = buffer.indexOf(AVCC);
+    if (index !== -1) {
+      index += 5;
+      mimeType = `video/mp4; codecs="avc1.${buffer.slice(index, index + 3).toString('hex').toUpperCase()}${audioString}"`;
+      this.videoLogger.info(`Detected stream with mimetype ${mimeType}`);
+    } else {
+      this.videoLogger.info(`Unable to detect stream mimetype, using ${mimeType}`);
+    }
     const mediaSource = new MediaSource();
     this.setupMediaSourceLogging(mediaSource);
     element.src = URL.createObjectURL(mediaSource); // eslint-disable-line no-param-reassign
@@ -568,13 +632,15 @@ export default class BlendClient extends EventEmitter {
       };
       mediaSource.addEventListener('sourceopen', handle);
     });
-    const videoBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.64001f, mp4a.40.2"');
+    const videoBuffer = mediaSource.addSourceBuffer(mimeType);
     this.videoBuffer = videoBuffer;
     this.setupVideoBufferLogging(videoBuffer);
     videoBuffer.addEventListener('updateend', async () => {
       if (this.videoQueue.length > 0 && !videoBuffer.updating) {
         try {
-          videoBuffer.appendBuffer(this.videoQueue.shift());
+          const data = mergeUint8Arrays(this.videoQueue);
+          this.videoQueue = [];
+          videoBuffer.appendBuffer(data);
         } catch (error) {
           this.videoBufferLogger.error(`${error.message}, code: ${error.code}`);
         }
