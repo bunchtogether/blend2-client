@@ -6,7 +6,7 @@ import CaptionParser from 'mux.js/lib/mp4/caption-parser';
 import mp4Probe from 'mux.js/lib/mp4/probe';
 import ISOBoxer from 'codem-isoboxer';
 import murmurHash from 'murmurhash-v3';
-import blendServerDetectedPromise from './server-detection';
+import { detectBlend, clearBlendDetection } from './server-detection';
 import makeBlendLogger from './logger';
 
 const SYNC_INTERVAL_DURATION = 3000;
@@ -266,7 +266,7 @@ export default class BlendClient extends EventEmitter {
   async openWebSocket(streamUrl       ) {
     const address = `ws://127.0.0.1:61340/api/1.0/stream/${encodeURIComponent(streamUrl)}/`;
 
-    const blendServerDetected = await blendServerDetectedPromise;
+    const blendServerDetected = await detectBlend();
 
     if (!blendServerDetected) {
       this.webSocketLogger.error(`Unable to open web socket connection to ${address}, Blend Server not detected`);
@@ -285,6 +285,9 @@ export default class BlendClient extends EventEmitter {
     ws.onclose = (event) => {
       clearInterval(heartbeatInterval);
       const { wasClean, reason, code } = event;
+      if (!wasClean) {
+        clearBlendDetection();
+      }
       this.webSocketLogger.info(`${wasClean ? 'Cleanly' : 'Uncleanly'} closed websocket connection to ${address} with code ${code}${reason ? `: ${reason}` : ''}`);
       delete this.ws;
       this.emit('close', code, reason);

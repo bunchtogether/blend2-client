@@ -4,15 +4,9 @@
 
 import superagent from 'superagent';
 import { stringify } from 'flatted';
-import blendServerDetectedPromise from './server-detection';
+import { detectBlend, clearBlendDetection } from './server-detection';
 
-let blendServerDetected = false;
-
-blendServerDetectedPromise.then((exists) => {
-  blendServerDetected = exists;
-});
-
-const log = (name:string, level:string, value:any, description?: string) => {
+export const log = (name:string, level:string, value:any, description?: string) => {
   let color = 'gray';
   switch (level) {
     case 'debug':
@@ -32,27 +26,35 @@ const log = (name:string, level:string, value:any, description?: string) => {
   }
   if (typeof value === 'string') {
     console.log(`%c${name}: %c${value}`, `color:${color}; font-weight: bold`, `color:${color}`);
-    if (blendServerDetected) {
+    detectBlend().then((detected) => {
+      if (!detected) {
+        return;
+      }
       superagent.post('http://127.0.0.1:61340/api/1.0/log').set('Content-Type', 'application/json').send({ name, level, value, description }).end((error) => {
         if (error) {
           console.error('Unable to post to logging API');
           console.error(error);
+          clearBlendDetection();
         }
       });
-    }
+    });
   } else {
     const sanitizedValue = JSON.parse(stringify(value));
     JSON.stringify(sanitizedValue, null, 2).split('\n').forEach((line) => {
       console.log(`%c${name}: %c${line}`, `color:${color}; font-weight: bold`, `color:${color}`);
     });
-    if (blendServerDetected) {
+    detectBlend().then((detected) => {
+      if (!detected) {
+        return;
+      }
       superagent.post('http://127.0.0.1:61340/api/1.0/log').set('Content-Type', 'application/json').send({ name, level, value: sanitizedValue, description }).end((error) => {
         if (error) {
           console.error('Unable to post to logging API');
           console.error(error);
+          clearBlendDetection();
         }
       });
-    }
+    });
   }
   if (typeof description === 'string') {
     console.log(`%c\t${description}`, 'color:gray');
