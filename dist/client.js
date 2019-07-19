@@ -101,7 +101,7 @@ function getPresentationTime(parsed        , timescale        ) {
 export default class BlendClient extends EventEmitter {
   constructor(element                  , streamUrl       ) {
     super();
-    this.syncHash = 1234; // murmurHash(streamUrl);
+    this.syncHash = murmurHash(streamUrl);
     this.element = element;
     this.textTracks = new Map();
     this.cueRanges = [];
