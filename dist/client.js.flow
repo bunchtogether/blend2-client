@@ -7,7 +7,7 @@ import mp4Probe from 'mux.js/lib/mp4/probe';
 import ISOBoxer from 'codem-isoboxer';
 import murmurHash from 'murmurhash-v3';
 import { debounce } from 'lodash';
-import { getIsServerAvailable } from './capabilities';
+import { detectBlend, clearBlendDetection } from './server-detection';
 import makeBlendLogger from './logger';
 
 const SYNC_INTERVAL_DURATION = 3000;
@@ -269,7 +269,7 @@ export default class BlendClient extends EventEmitter {
   async openWebSocket(streamUrl:string) {
     const address = `ws://127.0.0.1:61340/api/1.0/stream/${encodeURIComponent(streamUrl)}/`;
 
-    const blendServerDetected = await getIsServerAvailable();
+    const blendServerDetected = await detectBlend();
 
     if (!blendServerDetected) {
       this.webSocketLogger.error(`Unable to open web socket connection to ${address}, Blend Server not detected`);
@@ -288,6 +288,9 @@ export default class BlendClient extends EventEmitter {
     ws.onclose = (event) => {
       clearInterval(heartbeatInterval);
       const { wasClean, reason, code } = event;
+      if (!wasClean) {
+        clearBlendDetection();
+      }
       this.webSocketLogger.info(`${wasClean ? 'Cleanly' : 'Uncleanly'} closed websocket connection to ${address} with code ${code}${reason ? `: ${reason}` : ''}`);
       delete this.ws;
       this.emit('close', code, reason);
@@ -392,12 +395,12 @@ export default class BlendClient extends EventEmitter {
         return;
       }
       const speed = remoteOffset < 0 ? (1 + absoluteRemoteOffset) : 1 / (1 + absoluteRemoteOffset);
-      if(speed > 5) {
+      if (speed > 5) {
         element.playbackRate = 5;
         this.resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
         }, 1000 * absoluteRemoteOffset / 5);
-      } else if(speed < 0.20) {
+      } else if (speed < 0.20) {
         element.playbackRate = 0.20;
         this.resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
@@ -406,7 +409,7 @@ export default class BlendClient extends EventEmitter {
         element.playbackRate = speed;
         this.resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
-        }, 1000);   
+        }, 1000);
       }
     }, 100);
 
@@ -424,9 +427,9 @@ export default class BlendClient extends EventEmitter {
       if (parsed._incomplete) { // eslint-disable-line no-underscore-dangle
         return;
       }
-      if(!initializedMediaSource) {
+      if (!initializedMediaSource) {
         const moov = parsed.fetch('moov');
-        if(!moov) {
+        if (!moov) {
           return;
         }
         this.setupMediaSource(Buffer.from(buffered));
@@ -605,7 +608,7 @@ export default class BlendClient extends EventEmitter {
 
   async setupMediaSource(buffer: Buffer) {
     const element = this.element;
-    if(!element) {
+    if (!element) {
       this.videoLogger.error('Unable to setup media source, element does not exist');
       return;
     }
@@ -824,5 +827,6 @@ export default class BlendClient extends EventEmitter {
   textTracks: Map<string, TextTrack>;
   cueRanges: Array<[number, number]>;
   recoveryTimeout: TimeoutID | null;
+  startSyncIntervalTimeout: TimeoutID | null;
 }
 

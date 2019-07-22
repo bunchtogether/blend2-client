@@ -1,12 +1,11 @@
 // @flow
 
 import superagent from 'superagent';
+import { detectBlend } from './server-detection';
 
-let isServerAvailable = false;
 let isDeviceAvailable = false;
 
 function setCapabilities(responseBody: Object = {}) {
-  isServerAvailable = !!responseBody.isServerAvailable;
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
 }
 
@@ -21,9 +20,8 @@ async function getCapabilities(): Promise<void> {
   }
 }
 
-export async function getIsServerAvailable(): Promise<boolean> {
-  await getCapabilities();
-  return isServerAvailable;
+export function getIsServerAvailable(): Promise<boolean> {
+  return detectBlend();
 }
 
 export async function getIsDeviceAvailable(): Promise<boolean> {
