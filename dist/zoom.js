@@ -23,6 +23,11 @@ async function leave() {
   await post('/leave');
 }
 
+async function listParticipants() {
+  const results = await post('/listparticipants');
+  return results;
+}
+
 async function volume(volume        ) {
   await post('/audio/volume', { volume });
 }
@@ -53,6 +58,7 @@ const zoom = {
   unmuteMic,
   enableVideo,
   disableVideo,
+  listParticipants,
 };
 
 export default zoom;
