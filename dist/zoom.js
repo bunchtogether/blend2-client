@@ -48,6 +48,11 @@ async function disableVideo() {
 const zoom = {
   join,
   leave,
+  volume,
+  muteMic,
+  unmuteMic,
+  enableVideo,
+  disableVideo,
 };
 
 export default zoom;
