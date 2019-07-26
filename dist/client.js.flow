@@ -7,7 +7,7 @@ import mp4Probe from 'mux.js/lib/mp4/probe';
 import ISOBoxer from 'codem-isoboxer';
 import murmurHash from 'murmurhash-v3';
 import { debounce } from 'lodash';
-import { detectBlend, clearBlendDetection } from './server-detection';
+import { detectBlend, clearBlendDetection } from './capabilities';
 import makeBlendLogger from './logger';
 
 const SYNC_INTERVAL_DURATION = 3000;

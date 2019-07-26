@@ -1,6 +1,6 @@
 //      
 
-import { detectBlend } from './server-detection';
+import { detectBlend } from './capabilities';
 
 export default async (streamUrl       ) => {
   const blendServerDetected = await detectBlend();

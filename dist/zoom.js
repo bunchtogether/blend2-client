@@ -28,8 +28,8 @@ async function listParticipants() {
   return results;
 }
 
-async function volume(volume        ) {
-  await post('/audio/volume', { volume });
+async function volume(vlm        ) {
+  await post('/audio/volume', { volume: vlm });
 }
 
 async function muteMic() {
@@ -47,7 +47,6 @@ async function enableVideo() {
 async function disableVideo() {
   await post('/video/disable');
 }
-
 
 
 const zoom = {

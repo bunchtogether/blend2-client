@@ -4,7 +4,7 @@
 
 import superagent from 'superagent';
 import { stringify } from 'flatted';
-import { detectBlend, clearBlendDetection } from './server-detection';
+import { detectBlend, clearBlendDetection } from './capabilities';
 
 export const log = (name       , level       , value    , description         ) => {
   let color = 'gray';
