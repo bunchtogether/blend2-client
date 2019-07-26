@@ -15,7 +15,7 @@ async function getCapabilities(): Promise<void> {
     setCapabilities(body);
   } catch (error) {
     if (error.response) {
-      setCapabilities(error.response.body);
+      setCapabilities();
     }
   }
 }
