@@ -15,12 +15,20 @@ async function post(path: string, data: Object = {}) {
   }
 }
 
+async function check(password: string) {
+  await post('/check', { password });
+}
+
 async function join(meetingNumber: string, password: string) {
   await post('/join', { meetingNumber, password });
 }
 
 async function leave() {
   await post('/leave');
+}
+
+async function phoneCallOut(number: string, password: string) {
+  await post('/phone-call-out', { number, password });
 }
 
 async function listParticipants() {
@@ -58,6 +66,8 @@ const zoom = {
   enableVideo,
   disableVideo,
   listParticipants,
+  check,
+  phoneCallOut,
 };
 
 export default zoom;
