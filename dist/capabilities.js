@@ -4,9 +4,11 @@ import superagent from 'superagent';
 import { eventChannel } from 'redux-saga';
 
 let isDeviceAvailable = false;
+let isBluescapeAvailable = false;
 
 function setCapabilities(responseBody         = {}) {
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
+  isBluescapeAvailable = !!responseBody.isBluescapeAvailable;
 }
 
 export function getIsServerAvailable()                   {
@@ -16,6 +18,11 @@ export function getIsServerAvailable()                   {
 export async function getIsDeviceAvailable()                   {
   await detectBlend();
   return isDeviceAvailable;
+}
+
+export async function getIsBluescapeAvailable()                   {
+  await detectBlend();
+  return isBluescapeAvailable;
 }
 
 export const blendDetectedCallbacks = [];
