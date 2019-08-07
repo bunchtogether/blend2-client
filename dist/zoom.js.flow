@@ -27,6 +27,10 @@ async function leave() {
   await post('/leave');
 }
 
+async function share(password: string) {
+  await post('/share', { password });
+}
+
 async function phoneCallOut(number: string, password: string) {
   await post('/phone-call-out', { number, password });
 }
@@ -68,6 +72,7 @@ const zoom = {
   listParticipants,
   check,
   phoneCallOut,
+  share,
 };
 
 export default zoom;
