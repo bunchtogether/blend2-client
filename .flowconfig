@@ -2,6 +2,7 @@
 
 .*/node_modules/documentation/*
 .*/dist/.*.flow
+
 [include]
 
 [libs]

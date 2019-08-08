@@ -5,7 +5,7 @@
   "repository": "https://github.com/bunchtogether/blend2-client-js.git",
   "author": "johnwehr@bunchtogether.com",
   "scripts": {
-    "build": "rm -rf ./dist; flow-remove-types ./src --out-dir ./dist && flow-copy-source ./src ./dist",
+    "build": "rimraf ./dist && flow-remove-types ./src --out-dir ./dist && flow-copy-source ./src ./dist",
     "flow-typed": "./node_modules/.bin/flow-typed install --overwrite",
     "test": "yarn lint && yarn test:js",
     "test:js": "cross-env NODE_ENV=test jest --runInBand --detectOpenHandles tests",
@@ -68,6 +68,7 @@
     "murmurhash-v3": "^1.0.2",
     "mux.js": "^5.1.2",
     "redux-saga": "^1.0.5",
+    "rimraf": "^2.6.3",
     "superagent": "^5.0.2"
   }
 }
