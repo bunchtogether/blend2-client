@@ -5,10 +5,12 @@ import { eventChannel } from 'redux-saga';
 
 let isDeviceAvailable = false;
 let isBluescapeAvailable = false;
+let isZoomRoomAvailable = false;
 
 function setCapabilities(responseBody         = {}) {
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
   isBluescapeAvailable = !!responseBody.isBluescapeAvailable;
+  isZoomRoomAvailable = !!responseBody.isZoomRoomAvailable;
 }
 
 export function getIsServerAvailable()                   {
@@ -23,6 +25,11 @@ export async function getIsDeviceAvailable()                   {
 export async function getIsBluescapeAvailable()                   {
   await detectBlend();
   return isBluescapeAvailable;
+}
+
+export async function getIsZoomRoomAvailable()                   {
+  await detectBlend();
+  return isZoomRoomAvailable;
 }
 
 export const blendDetectedCallbacks = [];
