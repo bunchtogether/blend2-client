@@ -170,9 +170,11 @@ export default class ZoomRoomClient extends EventEmitter {
 
     zconfiguration.audio.input = (parameters:{volume: number}) => this.call('zconfiguration.audio.input', parameters);
 
-    zconfiguration.audio.output = (parameters:{selectedID: string}) => this.call('zconfiguration.audio.output', parameters);
+    zconfiguration.audio.output = {};
 
-    zconfiguration.audio.output = (parameters:{volume: number}) => this.call('zconfiguration.audio.output', parameters);
+    zconfiguration.audio.output.selectedID = (selectedID: string) => this.call('zconfiguration.audio.output.selectedID', { value: selectedID });
+
+    zconfiguration.audio.output.volume = (volume: number) => this.call('zconfiguration.audio.output.volume', { value: volume });
 
     zconfiguration.video = (parameters:{hide_conf_self_video: 'on' | 'off'}) => this.call('zconfiguration.video', parameters);
 
