@@ -283,7 +283,7 @@ export default class ZoomRoomClient extends EventEmitter {
       try {
         const [type, key, data] = JSON.parse(event.data);
         this.emit(type, key, data);
-        console.log({type, key, data});
+        console.log({ type, key, data });
       } catch (error) {
         this.webSocketLogger.error(`Unable to parse incoming message: ${event.data}`);
       }
