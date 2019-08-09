@@ -280,6 +280,7 @@ export default class ZoomRoomClient extends EventEmitter {
       this.webSocketLogger.info(`${wasClean ? 'Cleanly' : 'Uncleanly'} closed websocket connection to ${address} with code ${code}${reason ? `: ${reason}` : ''}`);
       delete this.ws;
       this.emit('close', code, reason);
+      this.reconnect();
     };
 
     ws.onmessage = (event) => {
