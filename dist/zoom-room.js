@@ -231,6 +231,7 @@ export default class ZoomRoomClient extends EventEmitter {
   }
 
   async close() {
+    this.shouldReconnect = false;
     try {
       await this.closeWebSocket();
     } catch (error) {
@@ -255,6 +256,8 @@ export default class ZoomRoomClient extends EventEmitter {
    * @return {Promise<void>}
    */
   async openWebSocket() {
+    this.shouldReconnect = true;
+
     const address = `ws://127.0.0.1:61340/api/1.0/zoom-room/socket/${encodeURIComponent(this.passcode)}`;
 
     const blendServerDetected = await detectBlend();
@@ -283,7 +286,7 @@ export default class ZoomRoomClient extends EventEmitter {
       try {
         const [type, key, data] = JSON.parse(event.data);
         this.emit(type, key, data);
-        console.log({type, key, data});
+        console.log({ type, key, data });
       } catch (error) {
         this.webSocketLogger.error(`Unable to parse incoming message: ${event.data}`);
       }
@@ -324,6 +327,28 @@ export default class ZoomRoomClient extends EventEmitter {
     await this.waitForStatus();
   }
 
+  reconnect() {
+    if (!this.shouldReconnect) {
+      return;
+    }
+    clearTimeout(this.reconnectTimeout);
+    clearTimeout(this.reconnectAttemptResetTimeout);
+    this.reconnectAttempts += 1;
+    clearTimeout(this.reconnectAttemptResetTimeout);
+    const duration = this.reconnectAttempts > 5 ? 25000 + Math.round(Math.random() * 10000) : this.reconnectAttempts * this.reconnectAttempts * 1000;
+    console.log(`Reconnect attempt ${this.reconnectAttempts} in ${Math.round(duration / 100) / 10} seconds`);
+    this.reconnectTimeout = setTimeout(async () => {
+      try {
+        await this.open(this.address, this.credentials);
+      } catch (error) {
+        console.log(`Reconnect attempt ${this.reconnectAttempts} failed: ${error.message}`);
+        this.emit('error', error);
+      }
+      this.reconnectAttemptResetTimeout = setTimeout(() => {
+        this.reconnectAttempts = 0;
+      }, 60000);
+    }, duration);
+  }
 
   /**
    * Close connection to server.
@@ -388,8 +413,10 @@ export default class ZoomRoomClient extends EventEmitter {
                    
                
                            
+                            
                            
-                                                 
+                                          
+                              
                 
                           
                        
