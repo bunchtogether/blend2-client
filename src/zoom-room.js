@@ -1,4 +1,5 @@
 // @flow
+/* eslint-disable camelcase */
 
 import WebSocket from 'isomorphic-ws';
 import superagent from 'superagent';
@@ -162,29 +163,31 @@ export default class ZoomRoomClient extends EventEmitter {
 
     zconfiguration.call.camera = (parameters:{mute: 'on' | 'off'}) => this.call('zconfiguration.call.camera', parameters);
 
-    zconfiguration.audio.input = (parameters:{selectedID: string}) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input = {};
 
-    zconfiguration.audio.input = (parameters:{is_sap_disabled: 'on' | 'off'}) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input.selectedID = (selectedID?: string) => this.call('zconfiguration.audio.input.selectedID', { value: selectedID });
 
-    zconfiguration.audio.input = (parameters:{reduce_reverb: 'on' | 'off'}) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input.is_sap_disabled = (is_sap_disabled?: 'on' | 'off') => this.call('zconfiguration.audio.input.is_sap_disabled', { value: is_sap_disabled });
 
-    zconfiguration.audio.input = (parameters:{volume: number}) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input.reduce_reverb = (reduce_reverb?: 'on' | 'off') => this.call('zconfiguration.audio.input.reduce_reverb', { value: reduce_reverb });
+
+    zconfiguration.audio.input.volume = (volume?: number) => this.call('zconfiguration.audio.input.volume', { value: volume });
 
     zconfiguration.audio.output = {};
 
-    zconfiguration.audio.output.selectedID = (selectedID: string) => this.call('zconfiguration.audio.output.selectedID', { value: selectedID });
+    zconfiguration.audio.output.selectedID = (selectedID?: string) => this.call('zconfiguration.audio.output.selectedID', { value: selectedID });
 
-    zconfiguration.audio.output.volume = (volume: number) => this.call('zconfiguration.audio.output.volume', { value: volume });
+    zconfiguration.audio.output.volume = (volume?: number) => this.call('zconfiguration.audio.output.volume', { value: volume });
 
     zconfiguration.video = (parameters:{hide_conf_self_video: 'on' | 'off'}) => this.call('zconfiguration.video', parameters);
 
-    zconfiguration.video.camera = (parameters:{selectedID: string}) => this.call('zconfiguration.video.camera', parameters);
+    zconfiguration.video.camera.selectedID = (selectedID?: string) => this.call('zconfiguration.video.camera.selectedID', { value: selectedID });
 
-    zconfiguration.video.camera = (parameters:{mirror: 'on' | 'off'}) => this.call('zconfiguration.video.camera', parameters);
+    zconfiguration.video.camera.mirror = (mirror?: 'on' | 'off') => this.call('zconfiguration.video.camera.mirror', { value: mirror });
 
-    zconfiguration.client = (parameters:{appVersion: string}) => this.call('zconfiguration.client', parameters);
+    zconfiguration.client.appVersion = (appVersion?: string) => this.call('zconfiguration.client.appVersion', { value: appVersion });
 
-    zconfiguration.client = (parameters:{deviceSystem: string}) => this.call('zconfiguration.client', parameters);
+    zconfiguration.client.deviceSystem = (deviceSystem?: string) => this.call('zconfiguration.client.deviceSystem', { value: deviceSystem });
 
     zconfiguration.call.layout = (parameters:{shareThumb?: 'on' | 'off', style?: 'Gallery' | 'Speaker' | 'Strip' | 'ShareAll', size?: 'Off' | 'Size1' | 'Size2' | 'Size3' | 'Strip', position: 'Center' | 'Up' | 'Right' | 'UpRight' | 'Down' | 'DownRight' | 'Left' | 'UpLeft' | 'DownLeft'}) => this.call('zconfiguration.call.layout', parameters);
 
