@@ -20,7 +20,7 @@ export default class ZoomRoomClient extends EventEmitter {
       this.webSocketLogger.error(error.message);
     });
     this.resetInProgress = false;
-    this.reconnectAttempts = 0;
+    this.reconnectAttempt = 0;
 
     const zcommand        = {
       dial: {},
@@ -35,6 +35,7 @@ export default class ZoomRoomClient extends EventEmitter {
     this.zcommand = zcommand;
 
     const zconfiguration        = {
+      client: {},
       call: {},
       audio: {},
       video: {},
@@ -180,6 +181,8 @@ export default class ZoomRoomClient extends EventEmitter {
 
     zconfiguration.video = (parameters                                     ) => this.call('zconfiguration.video', parameters);
 
+    zconfiguration.video.camera = {};
+
     zconfiguration.video.camera.selectedID = (selectedID         ) => this.call('zconfiguration.video.camera.selectedID', { value: selectedID });
 
     zconfiguration.video.camera.mirror = (mirror               ) => this.call('zconfiguration.video.camera.mirror', { value: mirror });
@@ -250,7 +253,7 @@ export default class ZoomRoomClient extends EventEmitter {
     this.resetInProgress = true;
     await this.close();
     this.resetInProgress = false;
-    this.reconnectAttempts += 1;
+    this.reconnectAttempt += 1;
     this.openWebSocket();
   }
 
