@@ -20,8 +20,7 @@ export default class ZoomRoomClient extends EventEmitter {
       this.webSocketLogger.error(error.message);
     });
     this.resetInProgress = false;
-    this.reconnectAttempt = 0;
-    this.reconnectAttemptResetTimeout = null;
+    this.reconnectAttempts = 0;
 
     const zcommand:Object = {
       dial: {},
@@ -251,7 +250,7 @@ export default class ZoomRoomClient extends EventEmitter {
     this.resetInProgress = true;
     await this.close();
     this.resetInProgress = false;
-    this.reconnectAttempt += 1;
+    this.reconnectAttempts += 1;
     this.openWebSocket();
   }
 
