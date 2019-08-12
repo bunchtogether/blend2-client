@@ -233,6 +233,7 @@ export default class ZoomRoomClient extends EventEmitter {
   }
 
   async close() {
+    this.shouldReconnect = false;
     try {
       await this.closeWebSocket();
     } catch (error) {
@@ -257,6 +258,8 @@ export default class ZoomRoomClient extends EventEmitter {
    * @return {Promise<void>}
    */
   async openWebSocket() {
+    this.shouldReconnect = true;
+
     const address = `ws://127.0.0.1:61340/api/1.0/zoom-room/socket/${encodeURIComponent(this.passcode)}`;
 
     const blendServerDetected = await detectBlend();
@@ -279,6 +282,7 @@ export default class ZoomRoomClient extends EventEmitter {
       this.webSocketLogger.info(`${wasClean ? 'Cleanly' : 'Uncleanly'} closed websocket connection to ${address} with code ${code}${reason ? `: ${reason}` : ''}`);
       delete this.ws;
       this.emit('close', code, reason);
+      this.reconnect();
     };
 
     ws.onmessage = (event) => {
@@ -326,6 +330,28 @@ export default class ZoomRoomClient extends EventEmitter {
     await this.waitForStatus();
   }
 
+  reconnect() {
+    if (!this.shouldReconnect) {
+      return;
+    }
+    clearTimeout(this.reconnectTimeout);
+    clearTimeout(this.reconnectAttemptResetTimeout);
+    this.reconnectAttempts += 1;
+    clearTimeout(this.reconnectAttemptResetTimeout);
+    const duration = this.reconnectAttempts > 5 ? 25000 + Math.round(Math.random() * 10000) : this.reconnectAttempts * this.reconnectAttempts * 1000;
+    console.log(`Reconnect attempt ${this.reconnectAttempts} in ${Math.round(duration / 100) / 10} seconds`);
+    this.reconnectTimeout = setTimeout(async () => {
+      try {
+        await this.open(this.address, this.credentials);
+      } catch (error) {
+        console.log(`Reconnect attempt ${this.reconnectAttempts} failed: ${error.message}`);
+        this.emit('error', error);
+      }
+      this.reconnectAttemptResetTimeout = setTimeout(() => {
+        this.reconnectAttempts = 0;
+      }, 60000);
+    }, duration);
+  }
 
   /**
    * Close connection to server.
@@ -390,8 +416,10 @@ export default class ZoomRoomClient extends EventEmitter {
   passcode: string;
   port: number;
   resetInProgress: boolean;
-  reconnectAttempt: number;
-  reconnectAttemptResetTimeout: TimeoutID | null;
+  reconnectAttempts: number;
+  shouldReconnect: boolean;
+  reconnectAttemptResetTimeout: TimeoutID;
+  reconnectTimeout: TimeoutID;
   ws: WebSocket;
   webSocketLogger: Object;
   ready: Promise<void>;
