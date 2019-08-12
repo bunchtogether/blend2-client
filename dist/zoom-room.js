@@ -338,19 +338,19 @@ export default class ZoomRoomClient extends EventEmitter {
     }
     clearTimeout(this.reconnectTimeout);
     clearTimeout(this.reconnectAttemptResetTimeout);
-    this.reconnectAttempts += 1;
+    this.reconnectAttempt += 1;
     clearTimeout(this.reconnectAttemptResetTimeout);
-    const duration = this.reconnectAttempts > 5 ? 25000 + Math.round(Math.random() * 10000) : this.reconnectAttempts * this.reconnectAttempts * 1000;
-    console.log(`Reconnect attempt ${this.reconnectAttempts} in ${Math.round(duration / 100) / 10} seconds`);
+    const duration = this.reconnectAttempt > 5 ? 25000 + Math.round(Math.random() * 10000) : this.reconnectAttempt * this.reconnectAttempt * 1000;
+    console.log(`Reconnect attempt ${this.reconnectAttempt} in ${Math.round(duration / 100) / 10} seconds`);
     this.reconnectTimeout = setTimeout(async () => {
       try {
         await this.openWebSocket();
       } catch (error) {
-        console.log(`Reconnect attempt ${this.reconnectAttempts} failed: ${error.message}`);
+        console.log(`Reconnect attempt ${this.reconnectAttempt} failed: ${error.message}`);
         this.emit('error', error);
       }
       this.reconnectAttemptResetTimeout = setTimeout(() => {
-        this.reconnectAttempts = 0;
+        this.reconnectAttempt = 0;
       }, 60000);
     }, duration);
   }
@@ -418,9 +418,9 @@ export default class ZoomRoomClient extends EventEmitter {
                    
                
                            
-                            
                            
-                                          
+                           
+                                                 
                               
                 
                           
