@@ -1,4 +1,5 @@
 //      
+/* eslint-disable camelcase */
 
 import WebSocket from 'isomorphic-ws';
 import superagent from 'superagent';
@@ -19,8 +20,7 @@ export default class ZoomRoomClient extends EventEmitter {
       this.webSocketLogger.error(error.message);
     });
     this.resetInProgress = false;
-    this.reconnectAttempt = 0;
-    this.reconnectAttemptResetTimeout = null;
+    this.reconnectAttempts = 0;
 
     const zcommand        = {
       dial: {},
@@ -162,29 +162,31 @@ export default class ZoomRoomClient extends EventEmitter {
 
     zconfiguration.call.camera = (parameters                     ) => this.call('zconfiguration.call.camera', parameters);
 
-    zconfiguration.audio.input = (parameters                     ) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input = {};
 
-    zconfiguration.audio.input = (parameters                                ) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input.selectedID = (selectedID         ) => this.call('zconfiguration.audio.input.selectedID', { value: selectedID });
 
-    zconfiguration.audio.input = (parameters                              ) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input.is_sap_disabled = (is_sap_disabled               ) => this.call('zconfiguration.audio.input.is_sap_disabled', { value: is_sap_disabled });
 
-    zconfiguration.audio.input = (parameters                 ) => this.call('zconfiguration.audio.input', parameters);
+    zconfiguration.audio.input.reduce_reverb = (reduce_reverb               ) => this.call('zconfiguration.audio.input.reduce_reverb', { value: reduce_reverb });
+
+    zconfiguration.audio.input.volume = (volume         ) => this.call('zconfiguration.audio.input.volume', { value: volume });
 
     zconfiguration.audio.output = {};
 
-    zconfiguration.audio.output.selectedID = (selectedID        ) => this.call('zconfiguration.audio.output.selectedID', { value: selectedID });
+    zconfiguration.audio.output.selectedID = (selectedID         ) => this.call('zconfiguration.audio.output.selectedID', { value: selectedID });
 
-    zconfiguration.audio.output.volume = (volume        ) => this.call('zconfiguration.audio.output.volume', { value: volume });
+    zconfiguration.audio.output.volume = (volume         ) => this.call('zconfiguration.audio.output.volume', { value: volume });
 
     zconfiguration.video = (parameters                                     ) => this.call('zconfiguration.video', parameters);
 
-    zconfiguration.video.camera = (parameters                     ) => this.call('zconfiguration.video.camera', parameters);
+    zconfiguration.video.camera.selectedID = (selectedID         ) => this.call('zconfiguration.video.camera.selectedID', { value: selectedID });
 
-    zconfiguration.video.camera = (parameters                       ) => this.call('zconfiguration.video.camera', parameters);
+    zconfiguration.video.camera.mirror = (mirror               ) => this.call('zconfiguration.video.camera.mirror', { value: mirror });
 
-    zconfiguration.client = (parameters                     ) => this.call('zconfiguration.client', parameters);
+    zconfiguration.client.appVersion = (appVersion         ) => this.call('zconfiguration.client.appVersion', { value: appVersion });
 
-    zconfiguration.client = (parameters                       ) => this.call('zconfiguration.client', parameters);
+    zconfiguration.client.deviceSystem = (deviceSystem         ) => this.call('zconfiguration.client.deviceSystem', { value: deviceSystem });
 
     zconfiguration.call.layout = (parameters                                                                                                                                                                                                                                                 ) => this.call('zconfiguration.call.layout', parameters);
 
@@ -248,7 +250,7 @@ export default class ZoomRoomClient extends EventEmitter {
     this.resetInProgress = true;
     await this.close();
     this.resetInProgress = false;
-    this.reconnectAttempt += 1;
+    this.reconnectAttempts += 1;
     this.openWebSocket();
   }
 
@@ -342,7 +344,7 @@ export default class ZoomRoomClient extends EventEmitter {
     console.log(`Reconnect attempt ${this.reconnectAttempts} in ${Math.round(duration / 100) / 10} seconds`);
     this.reconnectTimeout = setTimeout(async () => {
       try {
-        await this.open(this.address, this.credentials);
+        await this.openWebSocket();
       } catch (error) {
         console.log(`Reconnect attempt ${this.reconnectAttempts} failed: ${error.message}`);
         this.emit('error', error);
