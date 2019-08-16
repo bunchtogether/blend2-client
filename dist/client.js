@@ -234,6 +234,9 @@ export default class BlendClient extends EventEmitter {
   async close() {
     delete this.videoBuffer;
     clearTimeout(this.resetPlaybackRateTimeout);
+    if (this.startSyncIntervalTimeout) {
+      clearTimeout(this.startSyncIntervalTimeout);
+    }
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
     }
@@ -528,7 +531,7 @@ export default class BlendClient extends EventEmitter {
 
     const now = Date.now();
     this.startSyncIntervalTimeout = setTimeout(() => {
-      this.webSocketLogger.info(`Starting sync interval`);
+      this.webSocketLogger.info('Starting sync interval');
       this.syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
     }, SYNC_INTERVAL_DURATION - now % SYNC_INTERVAL_DURATION);
 
