@@ -234,6 +234,9 @@ export default class BlendClient extends EventEmitter {
   async close() {
     delete this.videoBuffer;
     clearTimeout(this.resetPlaybackRateTimeout);
+    if (this.startSyncIntervalTimeout) {
+      clearTimeout(this.startSyncIntervalTimeout);
+    }
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
     }
