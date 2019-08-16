@@ -314,26 +314,33 @@ export default class BlendClient extends EventEmitter {
     }
 
     const sendSyncInformation = () => {
+      this.webSocketLogger.info('Sending sync information');
       const element = this.element;
       if (!element) {
+        this.webSocketLogger.warn('Not sending sync information; no element');
         return;
       }
       if (!this.elementIsPlaying()) {
+        this.webSocketLogger.warn('Not sending sync information; element is not playing');
         return;
       }
       const localOffset = this.localOffset;
       if (!localOffset) {
+        this.webSocketLogger.warn('Not sending sync information; no local offset');
         return;
       }
       const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
       const currentTime = element.currentTime > 0 ? element.currentTime : 0;
-      if (!currentTime || !bufferEnd) {
+      if (!currentTime) {
+        this.webSocketLogger.warn('Not sending sync information; no current time');
         return;
       }
       if (!bufferEnd) {
+        this.webSocketLogger.warn('Not sending sync information; no buffer end');
         return;
       }
       if (!ws || ws.readyState !== 1) {
+        this.webSocketLogger.warn('Not sending sync information; no websocket');
         return;
       }
       const now = new Date();
@@ -343,29 +350,40 @@ export default class BlendClient extends EventEmitter {
     };
 
     const syncWithRemote = debounce(() => {
+      this.webSocketLogger.info('Syncing with remote device');
       const element = this.element;
       if (!element) {
+        this.webSocketLogger.warn('Not syncing with remote device; no element');
         return;
       }
       if (!this.elementIsPlaying()) {
+        this.webSocketLogger.warn('Not syncing with remote device; element not playing');
         return;
       }
       const localOffset = this.localOffset;
       if (!localOffset) {
+        this.webSocketLogger.warn('Not syncing with remote device; no local offset');
         return;
       }
       const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
       const currentTime = element.currentTime > 0 ? element.currentTime : 0;
-      if (!currentTime || !bufferEnd) {
+      if (!currentTime) {
+        this.webSocketLogger.warn('Not syncing with remote device; no current time');
+        return;
+      }
+      if (!bufferEnd) {
+        this.webSocketLogger.warn('Not syncing with remote device; no buffer end');
         return;
       }
       if (!segmentLength) {
+        this.webSocketLogger.warn('Not syncing with remote device; no segment length');
         return;
       }
       const now = new Date();
       const adjustedBufferEnd = localOffset + bufferEnd;
       remoteSyncData = remoteSyncData.filter((x) => now - x[0] < SYNC_INTERVAL_DURATION * 5);
       if (remoteSyncData.length === 0) {
+        this.webSocketLogger.warn('Not syncing with remote device; no remote sync data');
         return;
       }
       const targetTimestamp = Math.max(...remoteSyncData.map((x) => {
@@ -373,6 +391,7 @@ export default class BlendClient extends EventEmitter {
         return time;
       }).filter((time) => time < adjustedBufferEnd - segmentLength));
       if (isNaN(targetTimestamp) || targetTimestamp === -Infinity) {
+        this.webSocketLogger.warn('Not syncing with remote device; no target timestamp');
         return;
       }
       const remoteOffset = currentTime + localOffset - targetTimestamp;
@@ -437,9 +456,11 @@ export default class BlendClient extends EventEmitter {
       }
       const freeBox = parsed.fetch('free');
       if (freeBox) {
+        this.webSocketLogger.info('Found free box');
         const freeBoxData = Buffer.from(freeBox._raw.buffer); // eslint-disable-line no-underscore-dangle
         if (freeBoxData[8] === 0x3E && freeBoxData[9] === 0x3E) {
           this.localOffset = freeBoxData.readDoubleBE(10);
+          this.webSocketLogger.info(`Got local offset of ${this.localOffset} from free box`);
         }
       }
       if (!trackIds || !timescales) {
@@ -464,7 +485,9 @@ export default class BlendClient extends EventEmitter {
       const skipBox = parsed.fetch('skip');
       if (skipBox) {
         try {
+          this.webSocketLogger.info('Found skip box');
           const [date, timestamp, maxTimestamp, hash] = deserializeBlendBox(Buffer.from(skipBox._raw.buffer)); // eslint-disable-line no-underscore-dangle
+          this.webSocketLogger.info(`Got ${JSON.stringify({ date, timestamp, maxTimestamp, hash })} from skip box`);
           if (this.syncHash === hash) {
             remoteSyncData.push([date, timestamp, maxTimestamp]);
             syncWithRemote();
@@ -505,6 +528,7 @@ export default class BlendClient extends EventEmitter {
 
     const now = Date.now();
     this.startSyncIntervalTimeout = setTimeout(() => {
+      this.webSocketLogger.info(`Starting sync interval`);
       this.syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
     }, SYNC_INTERVAL_DURATION - now % SYNC_INTERVAL_DURATION);
 
