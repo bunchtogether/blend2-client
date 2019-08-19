@@ -6,7 +6,7 @@ import CaptionParser from 'mux.js/lib/mp4/caption-parser';
 import mp4Probe from 'mux.js/lib/mp4/probe';
 import ISOBoxer from 'codem-isoboxer';
 import murmurHash from 'murmurhash-v3';
-import { debounce } from 'lodash';
+import { throttle, mean } from 'lodash';
 import { detectBlend, clearBlendDetection } from './capabilities';
 import makeBlendLogger from './logger';
 
@@ -20,14 +20,6 @@ ISOBoxer.addBoxProcessor('prft', function () {
   this._procField('ntpTimestampInt', 'uint', 32); // eslint-disable-line no-underscore-dangle
   this._procField('ntpTimestampFrac', 'uint', 32); // eslint-disable-line no-underscore-dangle
   this._procField('mediaTime', 'uint', this.version === 1 ? 64 : 32); // eslint-disable-line no-underscore-dangle
-});
-
-ISOBoxer.addBoxProcessor('free', function () {
-  this._procFullBox(); // eslint-disable-line no-underscore-dangle
-});
-
-ISOBoxer.addBoxProcessor('skip', function () {
-  this._procFullBox(); // eslint-disable-line no-underscore-dangle
 });
 
 const serializeBlendBox = (date:Date, timestamp:number, maxTimestamp:number, hash:number) => {
@@ -142,6 +134,7 @@ export default class BlendClient extends EventEmitter {
       this.clearInitialization();
       delete this.clearInitialization;
     }
+    clearTimeout(this.resetRetryTimeout);
     delete this.videoBuffer;
     this.element.removeAttribute('src');
     this.element.load();
@@ -164,7 +157,12 @@ export default class BlendClient extends EventEmitter {
     try {
       await this.open();
     } catch (error) {
-      this.webSocketLogger.error(`Error reopening websocket: ${error.message}`); // eslint-disable-line no-console
+      const duration = this.reconnectAttempt > 5 ? 30000 : this.reconnectAttempt * this.reconnectAttempt * 1000;
+      this.webSocketLogger.error(`Error reopening websocket, retrying in ${duration / 1000} seconds: ${error.message}`); // eslint-disable-line no-console
+      this.resetRetryTimeout = setTimeout(() => {
+        this.resetInProgress = false;
+        this.reset();
+      }, duration);
     }
   }
 
@@ -191,8 +189,7 @@ export default class BlendClient extends EventEmitter {
       throw new Error('Websocket logger does not exist');
     }
     if (!blendServerDetected) {
-      webSocketLogger.error(`Unable to open web socket connection to ${address}, Blend Server not detected`);
-      return;
+      throw new Error(`Unable to open web socket connection to ${address}, Blend Server not detected`);
     }
     let stopSendingSyncInformation = Date.now() + 1000 * 60;
     let skipToNextBufferedSegmentInterval;
@@ -210,7 +207,6 @@ export default class BlendClient extends EventEmitter {
         return;
       }
       if (stopSendingSyncInformation < Date.now()) {
-        webSocketLogger.warn('Not sending sync information; past sending deadline');
         return;
       }
       const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
@@ -232,6 +228,7 @@ export default class BlendClient extends EventEmitter {
       const adjustedBufferEnd = localOffset + bufferEnd;
       ws.send(serializeBlendBox(now, adjustedPresentationTime, adjustedBufferEnd, this.syncHash));
       remoteSyncData.push([now, adjustedPresentationTime, adjustedBufferEnd]);
+      syncWithRemote();
     };
 
     const skipToNextBufferedSegment = () => {
@@ -305,7 +302,7 @@ export default class BlendClient extends EventEmitter {
         clientLogger.info('Recovery detection already in progress, skipping');
         return;
       }
-      if(!skipLogError) {
+      if (!skipLogError) {
         clientLogger.info('Ensuring recovery after error detected');
       }
       recoveryStart = Date.now();
@@ -358,8 +355,7 @@ export default class BlendClient extends EventEmitter {
     let remoteSyncData = [];
 
     let resetPlaybackRateTimeout;
-    const syncWithRemote = debounce(() => {
-      webSocketLogger.info('Syncing with remote device');
+    const syncWithRemote = throttle(() => {
       if (!this.elementIsPlaying()) {
         webSocketLogger.warn('Not syncing with remote device; element not playing');
         return;
@@ -368,14 +364,9 @@ export default class BlendClient extends EventEmitter {
         webSocketLogger.warn('Not syncing with remote device; no local offset');
         return;
       }
-      const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
       const currentTime = element.currentTime > 0 ? element.currentTime : 0;
       if (!currentTime) {
         webSocketLogger.warn('Not syncing with remote device; no current time');
-        return;
-      }
-      if (!bufferEnd) {
-        webSocketLogger.warn('Not syncing with remote device; no buffer end');
         return;
       }
       if (!segmentLength) {
@@ -383,28 +374,31 @@ export default class BlendClient extends EventEmitter {
         return;
       }
       const now = new Date();
-      const adjustedBufferEnd = localOffset + bufferEnd;
-      remoteSyncData = remoteSyncData.filter((x) => now - x[0] < SYNC_INTERVAL_DURATION * 5);
+      remoteSyncData = remoteSyncData.filter((x) => now - x[0] < SYNC_INTERVAL_DURATION + 1100);
       if (remoteSyncData.length === 0) {
         webSocketLogger.warn('Not syncing with remote device; no remote sync data');
         return;
       }
-      const targetTimestamp = Math.max(...remoteSyncData.map((x) => {
+      const currentTimestamp = currentTime + localOffset;
+      const targetTimestamps = remoteSyncData.map((x) => {
         const time = x[1] + (now - x[0]) / 1000;
         return time;
-      }).filter((time) => time < adjustedBufferEnd - segmentLength));
-      if (isNaN(targetTimestamp) || targetTimestamp === -Infinity) {
+      }).filter((x) => Math.abs(currentTimestamp - x) < segmentLength);
+      if (targetTimestamps.length === 0) {
         webSocketLogger.warn('Not syncing with remote device; no target timestamp');
         return;
       }
-      const remoteOffset = currentTime + localOffset - targetTimestamp;
+      const maxTargetTimestamp = Math.max(...targetTimestamps);
+      const targetTimestamp = (2 * mean(targetTimestamps) + maxTargetTimestamp) / 3;
+      const remoteOffset = currentTimestamp - targetTimestamp;
       const absoluteRemoteOffset = Math.abs(remoteOffset);
       clearTimeout(resetPlaybackRateTimeout);
-      if (absoluteRemoteOffset < 0.05) {
+      if (absoluteRemoteOffset < 0.01) {
         element.playbackRate = 1;
         return;
       }
       this.videoLogger.info(`Adjusting for ${remoteOffset} second sync offset`);
+      stopSendingSyncInformation = Date.now() + 1000 * 60;
       if (absoluteRemoteOffset < 0.05) {
         if (remoteOffset > 0) {
           element.playbackRate = 0.99;
@@ -416,25 +410,27 @@ export default class BlendClient extends EventEmitter {
         }, 1000 * absoluteRemoteOffset / 0.01);
         return;
       }
-      const speed = remoteOffset < 0 ? (1 + absoluteRemoteOffset) : 1 / (1 + absoluteRemoteOffset);
-      if (speed > 5) {
-        element.playbackRate = 5;
-        resetPlaybackRateTimeout = setTimeout(() => {
-          element.playbackRate = 1;
-        }, 1000 * absoluteRemoteOffset / 5);
-      } else if (speed < 0.20) {
-        element.playbackRate = 0.20;
-        resetPlaybackRateTimeout = setTimeout(() => {
-          element.playbackRate = 1;
-        }, 1000 * absoluteRemoteOffset / 5);
+      if (remoteOffset < 0) {
+        const speed = 1 + absoluteRemoteOffset;
+        if (speed > 5) {
+          element.playbackRate = 5;
+          resetPlaybackRateTimeout = setTimeout(() => {
+            element.playbackRate = 1;
+          }, 1000 * absoluteRemoteOffset / 5);
+        } else {
+          element.playbackRate = speed;
+          resetPlaybackRateTimeout = setTimeout(() => {
+            element.playbackRate = 1;
+          }, 1000);
+        }
       } else {
+        const speed = 0.9;
         element.playbackRate = speed;
         resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
-        }, 1000);
+        }, 1000 * absoluteRemoteOffset / 0.9);
       }
-    }, 100);
-
+    }, 1000);
 
     let initializedMediaSource = false;
     let foundFreebox = false;
@@ -461,7 +457,7 @@ export default class BlendClient extends EventEmitter {
       if (!foundFreebox) {
         const freeBoxes = parsed.fetchAll('free');
         webSocketLogger.info(`Found ${freeBoxes.length} free boxes`);
-        for(const freeBox of freeBoxes) {
+        for (const freeBox of freeBoxes) {
           const freeBoxData = Buffer.from(freeBox._raw.buffer); // eslint-disable-line no-underscore-dangle
           if (freeBoxData[8] === 0x3E && freeBoxData[9] === 0x3E) {
             localOffset = freeBoxData.readDoubleBE(10);
@@ -469,7 +465,7 @@ export default class BlendClient extends EventEmitter {
             foundFreebox = true;
           } else {
             webSocketLogger.error(`Could not parse free box: ${JSON.stringify(Array.from(freeBoxData))}`);
-          }          
+          }
         }
       }
       if (!trackIds || !timescales) {
@@ -494,10 +490,8 @@ export default class BlendClient extends EventEmitter {
       const skipBox = parsed.fetch('skip');
       if (skipBox) {
         try {
-          webSocketLogger.info('Found Blend box');
           const [date, timestamp, maxTimestamp, hash] = deserializeBlendBox(Buffer.from(skipBox._raw.buffer)); // eslint-disable-line no-underscore-dangle
           if (this.syncHash === hash) {
-            webSocketLogger.info(`Got ${JSON.stringify({ date, timestamp, maxTimestamp, hash })} from Blend box`);
             stopSendingSyncInformation = Date.now() + 1000 * 60;
             remoteSyncData.push([date, timestamp, maxTimestamp]);
             syncWithRemote();
@@ -542,10 +536,6 @@ export default class BlendClient extends EventEmitter {
       webSocketLogger.info('Starting sync interval');
       syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
     }, SYNC_INTERVAL_DURATION - now % SYNC_INTERVAL_DURATION);
-    const handleElementPause = () => {
-      clearInterval(syncInterval);
-    };
-    element.addEventListener('pause', handleElementPause);
 
     this.clearInitialization = () => {
       clearInterval(heartbeatInterval);
@@ -554,7 +544,6 @@ export default class BlendClient extends EventEmitter {
       clearTimeout(resetPlaybackRateTimeout);
       clearTimeout(reconnectAttemptResetTimeout);
       clearTimeout(recoveryTimeout);
-      element.removeEventListener('pause', handleElementPause);
       element.removeEventListener('waiting', handleElementWaiting);
       element.removeEventListener('playing', handleElementPlaying);
       element.removeEventListener('error', handleElementError);
@@ -861,6 +850,7 @@ export default class BlendClient extends EventEmitter {
   syncHash: number;
   element: HTMLVideoElement;
   resetInProgress: boolean;
+  resetRetryTimeout: TimeoutID;
   reconnectAttempt: number;
   videoBuffer: SourceBuffer;
   streamUrl:string;
