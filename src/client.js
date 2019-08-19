@@ -201,7 +201,6 @@ export default class BlendClient extends EventEmitter {
     const ws = new WebSocket(address);
     ws.binaryType = 'arraybuffer';
     const sendSyncInformation = () => {
-      webSocketLogger.info('Sending sync information');
       if (!this.elementIsPlaying()) {
         webSocketLogger.warn('Not sending sync information; element is not playing');
         return;
