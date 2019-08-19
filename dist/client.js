@@ -22,6 +22,14 @@ ISOBoxer.addBoxProcessor('prft', function () {
   this._procField('mediaTime', 'uint', this.version === 1 ? 64 : 32); // eslint-disable-line no-underscore-dangle
 });
 
+ISOBoxer.addBoxProcessor('free', function () {
+  this._procFullBox(); // eslint-disable-line no-underscore-dangle
+});
+
+ISOBoxer.addBoxProcessor('skip', function () {
+  this._procFullBox(); // eslint-disable-line no-underscore-dangle
+});
+
 const serializeBlendBox = (date     , timestamp       , maxTimestamp       , hash       ) => {
   const blendBox = Buffer.alloc(40);
   blendBox.set([0x00, 0x00, 0x00, 0x28, 0x73, 0x6B, 0x69, 0x70], 0);
@@ -109,118 +117,16 @@ export default class BlendClient extends EventEmitter {
     this.videoQueue = [];
     this.resetInProgress = false;
     this.reconnectAttempt = 0;
-    this.reconnectAttemptResetTimeout = null;
-    const clientLogger = makeBlendLogger(`${streamUrl} Client`);
     this.videoLogger = makeBlendLogger(`${streamUrl} Video Element`);
     this.mediaSourceLogger = makeBlendLogger(`${streamUrl} Media Source`);
     this.videoBufferLogger = makeBlendLogger(`${streamUrl} Video Source Buffer`);
     this.webSocketLogger = makeBlendLogger(`${streamUrl} WebSocket`);
     this.captionsLogger = makeBlendLogger(`${streamUrl} Captions`);
     this.setupElementLogging(element);
-    this.ready = this.openWebSocket(streamUrl);
+    this.ready = this.open();
     this.ready.catch((error) => {
       this.webSocketLogger.error(error.message);
     });
-    element.addEventListener('error', (event      ) => {
-      if (event.type !== 'error') {
-        return;
-      }
-      const mediaError = element.error;
-      if (mediaError && mediaError.code === mediaError.MEDIA_ERR_DECODE) {
-        // this.emit('error', mediaError);
-        this.reset();
-      }
-    });
-    let nextBufferedSegmentInterval;
-    const skipToNextBufferedSegment = () => {
-      const videoBuffer = this.videoBuffer;
-      if (!videoBuffer) {
-        return;
-      }
-      for (let i = 0; i < videoBuffer.buffered.length; i += 1) {
-        const segmentStart = videoBuffer.buffered.start(i);
-        if (segmentStart > element.currentTime) {
-          this.videoLogger.warn(`Skipping ${segmentStart - element.currentTime} ms`);
-          element.currentTime = segmentStart; // eslint-disable-line no-param-reassign
-          return;
-        }
-      }
-    };
-    const addEnsureRecoveryOnWaiting = () => {
-      element.addEventListener('waiting', () => {
-        ensureRecovery();
-        if (!this.videoBuffer) {
-          return;
-        }
-        clearInterval(nextBufferedSegmentInterval);
-        nextBufferedSegmentInterval = setInterval(() => {
-          skipToNextBufferedSegment();
-        }, 100);
-        skipToNextBufferedSegment();
-      });
-      element.removeEventListener('canplay', addEnsureRecoveryOnWaiting);
-      element.removeEventListener('playing', addEnsureRecoveryOnWaiting);
-      element.removeEventListener('play', addEnsureRecoveryOnWaiting);
-    };
-    element.addEventListener('canplay', addEnsureRecoveryOnWaiting);
-    element.addEventListener('playing', addEnsureRecoveryOnWaiting);
-    element.addEventListener('play', addEnsureRecoveryOnWaiting);
-    element.addEventListener('canplay', () => {
-      clearInterval(nextBufferedSegmentInterval);
-      element.play();
-    });
-    element.addEventListener('pause', () => {
-      clearInterval(this.syncInterval);
-    });
-    this.recoveryTimeout = null;
-    const ensureRecovery = () => {
-      if (this.reconnectAttemptResetTimeout) {
-        clearTimeout(this.reconnectAttemptResetTimeout);
-      }
-      if (this.elementIsPlaying()) {
-        clientLogger.info('Element is playing, skipping recovery detection');
-        return;
-      }
-      if (this.recoveryTimeout || this.resetInProgress) {
-        clientLogger.info('Recovery detection already in progress, skipping');
-        return;
-      }
-      clientLogger.info('Ensuring recovery after error detected');
-      const recoveryStart = Date.now();
-      const handlePlay = () => {
-        clientLogger.info(`Recovered after ${Math.round((Date.now() - recoveryStart) / 100) / 10} seconds`);
-        if (this.recoveryTimeout) {
-          clearTimeout(this.recoveryTimeout);
-        }
-        this.recoveryTimeout = null;
-        element.removeEventListener('play', handlePlay);
-        element.removeEventListener('playing', handlePlay);
-        this.reconnectAttemptResetTimeout = setTimeout(() => {
-          this.reconnectAttempt = 0;
-        }, 15000);
-      };
-      clientLogger.info(`Reconnect attempt: ${this.reconnectAttempt}`);
-      if (this.reconnectAttempt > 3) {
-        clientLogger.info(`Attempting to play fallback stream after ${this.reconnectAttempt} attempts`);
-        // Emit message to handle fallback url
-        this.emit('handleFallbackStream', { });
-        this.reconnectAttempt = 0;
-      }
-      this.recoveryTimeout = setTimeout(() => {
-        if (this.elementIsPlaying()) {
-          clientLogger.info('Detected playing element after recovery timeout');
-          handlePlay();
-          return;
-        }
-        this.recoveryTimeout = null;
-        clientLogger.error('Timeout after attempted recovery');
-        this.reset();
-        element.removeEventListener('play', handlePlay);
-        element.removeEventListener('playing', handlePlay);
-      }, 10000);
-      element.addEventListener('play', handlePlay);
-      element.addEventListener('playing', handlePlay);
-    };
   }
 
   elementIsPlaying() {
@@ -232,17 +138,11 @@ export default class BlendClient extends EventEmitter {
   }
 
   async close() {
+    if (this.clearInitialization) {
+      this.clearInitialization();
+      delete this.clearInitialization;
+    }
     delete this.videoBuffer;
-    clearTimeout(this.resetPlaybackRateTimeout);
-    if (this.startSyncIntervalTimeout) {
-      clearTimeout(this.startSyncIntervalTimeout);
-    }
-    if (this.syncInterval) {
-      clearInterval(this.syncInterval);
-    }
-    if (this.recoveryTimeout) {
-      clearTimeout(this.recoveryTimeout);
-    }
     this.element.removeAttribute('src');
     this.element.load();
     try {
@@ -261,7 +161,11 @@ export default class BlendClient extends EventEmitter {
     await this.close();
     this.resetInProgress = false;
     this.reconnectAttempt += 1;
-    this.openWebSocket(this.streamUrl);
+    try {
+      await this.open();
+    } catch (error) {
+      this.webSocketLogger.error(`Error reopening websocket: ${error.message}`); // eslint-disable-line no-console
+    }
   }
 
   /**
@@ -269,24 +173,172 @@ export default class BlendClient extends EventEmitter {
    * @param {string} address Stream URL
    * @return {Promise<void>}
    */
-  async openWebSocket(streamUrl       ) {
+  async open() {
+    const streamUrl = this.streamUrl;
+    const clientLogger = makeBlendLogger(`${streamUrl} Client`);
+    const webSocketLogger = this.webSocketLogger;
+    const element = this.element;
     const address = `ws://127.0.0.1:61340/api/1.0/stream/${encodeURIComponent(streamUrl)}/`;
-
     const blendServerDetected = await detectBlend();
-
+    let localOffset = 0;
+    if (!streamUrl) {
+      throw new Error('Stream URL does not exist');
+    }
+    if (!element) {
+      throw new Error('Element does not exist');
+    }
+    if (!webSocketLogger) {
+      throw new Error('Websocket logger does not exist');
+    }
     if (!blendServerDetected) {
-      this.webSocketLogger.error(`Unable to open web socket connection to ${address}, Blend Server not detected`);
+      webSocketLogger.error(`Unable to open web socket connection to ${address}, Blend Server not detected`);
       return;
     }
-
+    let stopSendingSyncInformation = Date.now() + 1000 * 60;
+    let skipToNextBufferedSegmentInterval;
+    let recoveryTimeout = null;
+    let reconnectAttemptResetTimeout;
     const ws = new WebSocket(address);
+    ws.binaryType = 'arraybuffer';
+    const sendSyncInformation = () => {
+      webSocketLogger.info('Sending sync information');
+      if (!this.elementIsPlaying()) {
+        webSocketLogger.warn('Not sending sync information; element is not playing');
+        return;
+      }
+      if (!localOffset) {
+        webSocketLogger.warn('Not sending sync information; no local offset');
+        return;
+      }
+      if (stopSendingSyncInformation < Date.now()) {
+        webSocketLogger.warn('Not sending sync information; past sending deadline');
+        return;
+      }
+      const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
+      const currentTime = element.currentTime > 0 ? element.currentTime : 0;
+      if (!currentTime) {
+        webSocketLogger.warn('Not sending sync information; no current time');
+        return;
+      }
+      if (!bufferEnd) {
+        webSocketLogger.warn('Not sending sync information; no buffer end');
+        return;
+      }
+      if (!ws || ws.readyState !== 1) {
+        webSocketLogger.warn('Not sending sync information; no websocket');
+        return;
+      }
+      const now = new Date();
+      const adjustedPresentationTime = localOffset + currentTime;
+      const adjustedBufferEnd = localOffset + bufferEnd;
+      ws.send(serializeBlendBox(now, adjustedPresentationTime, adjustedBufferEnd, this.syncHash));
+      remoteSyncData.push([now, adjustedPresentationTime, adjustedBufferEnd]);
+    };
+
+    const skipToNextBufferedSegment = () => {
+      const videoBuffer = this.videoBuffer;
+      if (!videoBuffer) {
+        return;
+      }
+      for (let i = 0; i < videoBuffer.buffered.length; i += 1) {
+        const segmentStart = videoBuffer.buffered.start(i);
+        if (segmentStart > element.currentTime) {
+          this.videoLogger.warn(`Skipping ${segmentStart - element.currentTime} ms`);
+          element.currentTime = segmentStart; // eslint-disable-line no-param-reassign
+          return;
+        }
+      }
+    };
+
+    const handleElementWaiting = () => {
+      clearInterval(skipToNextBufferedSegmentInterval);
+      ensureRecovery();
+      if (!this.videoBuffer) {
+        return;
+      }
+      skipToNextBufferedSegmentInterval = setInterval(() => {
+        skipToNextBufferedSegment();
+      }, 100);
+      skipToNextBufferedSegment();
+    };
+
+    let recoveryStart = Date.now();
+
+    const handleElementPlaying = () => {
+      stopSendingSyncInformation = Date.now() + 1000 * 60;
+      sendSyncInformation();
+      clearInterval(skipToNextBufferedSegmentInterval);
+      if (recoveryTimeout) {
+        clientLogger.info(`Recovered after ${Math.round((Date.now() - recoveryStart) / 100) / 10} seconds`);
+        if (recoveryTimeout) {
+          clearTimeout(recoveryTimeout);
+        }
+        recoveryTimeout = null;
+        reconnectAttemptResetTimeout = setTimeout(() => {
+          this.reconnectAttempt = 0;
+        }, 15000);
+      }
+    };
+
+    const handleElementError = (event      ) => {
+      if (event.type !== 'error') {
+        return;
+      }
+      const mediaError = element.error;
+      if (mediaError && mediaError.code === mediaError.MEDIA_ERR_DECODE) {
+        this.reset();
+      }
+    };
+
+    const handleElementCanPlay = () => {
+      element.play();
+    };
+
+    const ensureRecovery = (skipLogError          = false) => {
+      if (reconnectAttemptResetTimeout) {
+        clearTimeout(reconnectAttemptResetTimeout);
+      }
+      if (this.elementIsPlaying()) {
+        clientLogger.info('Element is playing, skipping recovery detection');
+        return;
+      }
+      if (recoveryTimeout || this.resetInProgress) {
+        clientLogger.info('Recovery detection already in progress, skipping');
+        return;
+      }
+      if(!skipLogError) {
+        clientLogger.info('Ensuring recovery after error detected');
+      }
+      recoveryStart = Date.now();
+      clientLogger.info(`Reconnect attempt: ${this.reconnectAttempt}`);
+      if (this.reconnectAttempt > 3) {
+        clientLogger.info(`Attempting to play fallback stream after ${this.reconnectAttempt} attempts`);
+        // Emit message to handle fallback url
+        this.emit('handleFallbackStream');
+        this.reconnectAttempt = 0;
+      }
+      recoveryTimeout = setTimeout(() => {
+        if (this.elementIsPlaying()) {
+          clientLogger.info('Detected playing element after recovery timeout');
+          handleElementPlaying();
+          return;
+        }
+        recoveryTimeout = null;
+        clientLogger.error('Timeout after attempted recovery');
+        this.reset();
+      }, 10000);
+    };
+
+    ensureRecovery(true);
+
+    element.addEventListener('waiting', handleElementWaiting);
+    element.addEventListener('playing', handleElementPlaying);
+    element.addEventListener('error', handleElementError);
+    element.addEventListener('canplay', handleElementCanPlay);
 
     let heartbeatInterval;
     const captionParser = new CaptionParser();
-
     captionParser.init();
-
-    ws.binaryType = 'arraybuffer';
 
     ws.onclose = (event) => {
       clearInterval(heartbeatInterval);
@@ -294,7 +346,7 @@ export default class BlendClient extends EventEmitter {
       if (!wasClean) {
         clearBlendDetection();
       }
-      this.webSocketLogger.info(`${wasClean ? 'Cleanly' : 'Uncleanly'} closed websocket connection to ${address} with code ${code}${reason ? `: ${reason}` : ''}`);
+      webSocketLogger.info(`${wasClean ? 'Cleanly' : 'Uncleanly'} closed websocket connection to ${address} with code ${code}${reason ? `: ${reason}` : ''}`);
       delete this.ws;
       this.emit('close', code, reason);
     };
@@ -306,87 +358,36 @@ export default class BlendClient extends EventEmitter {
     let segmentLength;
     let remoteSyncData = [];
 
-
-    const el = this.element;
-    if (el) {
-      const sendInitialSyncInformation = () => {
-        el.removeEventListener('playing', sendInitialSyncInformation);
-        sendSyncInformation();
-      };
-      el.addEventListener('playing', sendInitialSyncInformation);
-    }
-
-    const sendSyncInformation = () => {
-      this.webSocketLogger.info('Sending sync information');
-      const element = this.element;
-      if (!element) {
-        this.webSocketLogger.warn('Not sending sync information; no element');
-        return;
-      }
-      if (!this.elementIsPlaying()) {
-        this.webSocketLogger.warn('Not sending sync information; element is not playing');
-        return;
-      }
-      const localOffset = this.localOffset;
-      if (!localOffset) {
-        this.webSocketLogger.warn('Not sending sync information; no local offset');
-        return;
-      }
-      const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
-      const currentTime = element.currentTime > 0 ? element.currentTime : 0;
-      if (!currentTime) {
-        this.webSocketLogger.warn('Not sending sync information; no current time');
-        return;
-      }
-      if (!bufferEnd) {
-        this.webSocketLogger.warn('Not sending sync information; no buffer end');
-        return;
-      }
-      if (!ws || ws.readyState !== 1) {
-        this.webSocketLogger.warn('Not sending sync information; no websocket');
-        return;
-      }
-      const now = new Date();
-      const adjustedPresentationTime = localOffset + currentTime;
-      const adjustedBufferEnd = localOffset + bufferEnd;
-      ws.send(serializeBlendBox(now, adjustedPresentationTime, adjustedBufferEnd, this.syncHash));
-    };
-
+    let resetPlaybackRateTimeout;
     const syncWithRemote = debounce(() => {
-      this.webSocketLogger.info('Syncing with remote device');
-      const element = this.element;
-      if (!element) {
-        this.webSocketLogger.warn('Not syncing with remote device; no element');
-        return;
-      }
+      webSocketLogger.info('Syncing with remote device');
       if (!this.elementIsPlaying()) {
-        this.webSocketLogger.warn('Not syncing with remote device; element not playing');
+        webSocketLogger.warn('Not syncing with remote device; element not playing');
         return;
       }
-      const localOffset = this.localOffset;
       if (!localOffset) {
-        this.webSocketLogger.warn('Not syncing with remote device; no local offset');
+        webSocketLogger.warn('Not syncing with remote device; no local offset');
         return;
       }
       const bufferEnd = element.buffered && element.buffered.length > 0 ? element.buffered.end(element.buffered.length - 1) : 0;
       const currentTime = element.currentTime > 0 ? element.currentTime : 0;
       if (!currentTime) {
-        this.webSocketLogger.warn('Not syncing with remote device; no current time');
+        webSocketLogger.warn('Not syncing with remote device; no current time');
         return;
       }
       if (!bufferEnd) {
-        this.webSocketLogger.warn('Not syncing with remote device; no buffer end');
+        webSocketLogger.warn('Not syncing with remote device; no buffer end');
         return;
       }
       if (!segmentLength) {
-        this.webSocketLogger.warn('Not syncing with remote device; no segment length');
+        webSocketLogger.warn('Not syncing with remote device; no segment length');
         return;
       }
       const now = new Date();
       const adjustedBufferEnd = localOffset + bufferEnd;
       remoteSyncData = remoteSyncData.filter((x) => now - x[0] < SYNC_INTERVAL_DURATION * 5);
       if (remoteSyncData.length === 0) {
-        this.webSocketLogger.warn('Not syncing with remote device; no remote sync data');
+        webSocketLogger.warn('Not syncing with remote device; no remote sync data');
         return;
       }
       const targetTimestamp = Math.max(...remoteSyncData.map((x) => {
@@ -394,12 +395,12 @@ export default class BlendClient extends EventEmitter {
         return time;
       }).filter((time) => time < adjustedBufferEnd - segmentLength));
       if (isNaN(targetTimestamp) || targetTimestamp === -Infinity) {
-        this.webSocketLogger.warn('Not syncing with remote device; no target timestamp');
+        webSocketLogger.warn('Not syncing with remote device; no target timestamp');
         return;
       }
       const remoteOffset = currentTime + localOffset - targetTimestamp;
       const absoluteRemoteOffset = Math.abs(remoteOffset);
-      clearTimeout(this.resetPlaybackRateTimeout);
+      clearTimeout(resetPlaybackRateTimeout);
       if (absoluteRemoteOffset < 0.05) {
         element.playbackRate = 1;
         return;
@@ -411,7 +412,7 @@ export default class BlendClient extends EventEmitter {
         } else {
           element.playbackRate = 1.01;
         }
-        this.resetPlaybackRateTimeout = setTimeout(() => {
+        resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
         }, 1000 * absoluteRemoteOffset / 0.01);
         return;
@@ -419,17 +420,17 @@ export default class BlendClient extends EventEmitter {
       const speed = remoteOffset < 0 ? (1 + absoluteRemoteOffset) : 1 / (1 + absoluteRemoteOffset);
       if (speed > 5) {
         element.playbackRate = 5;
-        this.resetPlaybackRateTimeout = setTimeout(() => {
+        resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
         }, 1000 * absoluteRemoteOffset / 5);
       } else if (speed < 0.20) {
         element.playbackRate = 0.20;
-        this.resetPlaybackRateTimeout = setTimeout(() => {
+        resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
         }, 1000 * absoluteRemoteOffset / 5);
       } else {
         element.playbackRate = speed;
-        this.resetPlaybackRateTimeout = setTimeout(() => {
+        resetPlaybackRateTimeout = setTimeout(() => {
           element.playbackRate = 1;
         }, 1000);
       }
@@ -437,6 +438,7 @@ export default class BlendClient extends EventEmitter {
 
 
     let initializedMediaSource = false;
+    let foundFreebox = false;
 
     ws.onmessage = (event) => {
       captionParser.clearParsedCaptions();
@@ -457,13 +459,18 @@ export default class BlendClient extends EventEmitter {
         this.setupMediaSource(Buffer.from(buffered));
         initializedMediaSource = true;
       }
-      const freeBox = parsed.fetch('free');
-      if (freeBox) {
-        this.webSocketLogger.info('Found free box');
-        const freeBoxData = Buffer.from(freeBox._raw.buffer); // eslint-disable-line no-underscore-dangle
-        if (freeBoxData[8] === 0x3E && freeBoxData[9] === 0x3E) {
-          this.localOffset = freeBoxData.readDoubleBE(10);
-          this.webSocketLogger.info(`Got local offset of ${this.localOffset} from free box`);
+      if (!foundFreebox) {
+        const freeBoxes = parsed.fetchAll('free');
+        webSocketLogger.info(`Found ${freeBoxes.length} free boxes`);
+        for(const freeBox of freeBoxes) {
+          const freeBoxData = Buffer.from(freeBox._raw.buffer); // eslint-disable-line no-underscore-dangle
+          if (freeBoxData[8] === 0x3E && freeBoxData[9] === 0x3E) {
+            localOffset = freeBoxData.readDoubleBE(10);
+            webSocketLogger.info(`Got local offset of ${localOffset} from free box`);
+            foundFreebox = true;
+          } else {
+            webSocketLogger.error(`Could not parse free box: ${JSON.stringify(Array.from(freeBoxData))}`);
+          }          
         }
       }
       if (!trackIds || !timescales) {
@@ -488,15 +495,16 @@ export default class BlendClient extends EventEmitter {
       const skipBox = parsed.fetch('skip');
       if (skipBox) {
         try {
-          this.webSocketLogger.info('Found skip box');
+          webSocketLogger.info('Found Blend box');
           const [date, timestamp, maxTimestamp, hash] = deserializeBlendBox(Buffer.from(skipBox._raw.buffer)); // eslint-disable-line no-underscore-dangle
-          this.webSocketLogger.info(`Got ${JSON.stringify({ date, timestamp, maxTimestamp, hash })} from skip box`);
           if (this.syncHash === hash) {
+            webSocketLogger.info(`Got ${JSON.stringify({ date, timestamp, maxTimestamp, hash })} from Blend box`);
+            stopSendingSyncInformation = Date.now() + 1000 * 60;
             remoteSyncData.push([date, timestamp, maxTimestamp]);
             syncWithRemote();
           }
         } catch (error) {
-          this.webSocketLogger.error('Unable to parse sync message');
+          webSocketLogger.error(`Unable to parse Blend box: ${error.message}`);
           console.error(error);
         }
       }
@@ -530,10 +538,29 @@ export default class BlendClient extends EventEmitter {
     };
 
     const now = Date.now();
-    this.startSyncIntervalTimeout = setTimeout(() => {
-      this.webSocketLogger.info('Starting sync interval');
-      this.syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
+    let syncInterval;
+    const startSyncIntervalTimeout = setTimeout(() => {
+      webSocketLogger.info('Starting sync interval');
+      syncInterval = setInterval(sendSyncInformation, SYNC_INTERVAL_DURATION);
     }, SYNC_INTERVAL_DURATION - now % SYNC_INTERVAL_DURATION);
+    const handleElementPause = () => {
+      clearInterval(syncInterval);
+    };
+    element.addEventListener('pause', handleElementPause);
+
+    this.clearInitialization = () => {
+      clearInterval(heartbeatInterval);
+      clearTimeout(startSyncIntervalTimeout);
+      clearInterval(syncInterval);
+      clearTimeout(resetPlaybackRateTimeout);
+      clearTimeout(reconnectAttemptResetTimeout);
+      clearTimeout(recoveryTimeout);
+      element.removeEventListener('pause', handleElementPause);
+      element.removeEventListener('waiting', handleElementWaiting);
+      element.removeEventListener('playing', handleElementPlaying);
+      element.removeEventListener('error', handleElementError);
+      element.removeEventListener('canplay', handleElementCanPlay);
+    };
 
     await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -546,7 +573,7 @@ export default class BlendClient extends EventEmitter {
 
       ws.onerror = (event) => {
         clearTimeout(timeout);
-        this.webSocketLogger.error(`Unable to open socket to ${streamUrl}`);
+        webSocketLogger.error(`Unable to open socket to ${streamUrl}`);
         this.emit('error', event);
         reject(new Error('Unable to open'));
       };
@@ -561,7 +588,7 @@ export default class BlendClient extends EventEmitter {
           }
         }, 5000);
         ws.onerror = (event) => {
-          this.webSocketLogger.error(event);
+          webSocketLogger.error(event);
           this.emit('error', event);
         };
         resolve();
@@ -833,13 +860,9 @@ export default class BlendClient extends EventEmitter {
 
             
                    
-                           
-                      
-                                      
                             
                            
                            
-                                                 
                             
                    
                 
@@ -853,7 +876,6 @@ export default class BlendClient extends EventEmitter {
                        
                                      
                                      
-                                    
-                                             
+                                  
 }
 
