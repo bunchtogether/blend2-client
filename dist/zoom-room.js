@@ -342,7 +342,6 @@ export default class ZoomRoomClient extends EventEmitter {
     clearTimeout(this.reconnectTimeout);
     clearTimeout(this.reconnectAttemptResetTimeout);
     this.reconnectAttempt += 1;
-    clearTimeout(this.reconnectAttemptResetTimeout);
     const duration = this.reconnectAttempt > 5 ? 25000 + Math.round(Math.random() * 10000) : this.reconnectAttempt * this.reconnectAttempt * 1000;
     console.log(`Reconnect attempt ${this.reconnectAttempt} in ${Math.round(duration / 100) / 10} seconds`);
     this.reconnectTimeout = setTimeout(async () => {
@@ -423,7 +422,7 @@ export default class ZoomRoomClient extends EventEmitter {
                            
                            
                            
-                                                 
+                                          
                               
                 
                           
