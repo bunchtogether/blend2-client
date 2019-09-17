@@ -543,7 +543,7 @@ export default class BlendClient extends EventEmitter {
       clearInterval(syncInterval);
       clearTimeout(resetPlaybackRateTimeout);
       clearTimeout(reconnectAttemptResetTimeout);
-      if(recoveryTimeout) {
+      if (recoveryTimeout) {
         clearTimeout(recoveryTimeout);
       }
       element.removeEventListener('waiting', handleElementWaiting);

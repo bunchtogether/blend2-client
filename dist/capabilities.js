@@ -34,7 +34,7 @@ export async function getIsZoomRoomAvailable()                   {
   return isZoomRoomAvailable;
 }
 
-export async function getMacAddress()                   {
+export async function getMacAddress()                  {
   await detectBlend();
   return macAddress;
 }

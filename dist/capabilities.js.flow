@@ -34,7 +34,7 @@ export async function getIsZoomRoomAvailable(): Promise<boolean> {
   return isZoomRoomAvailable;
 }
 
-export async function getMacAddress(): Promise<boolean> {
+export async function getMacAddress(): Promise<string> {
   await detectBlend();
   return macAddress;
 }
