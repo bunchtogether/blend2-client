@@ -6,11 +6,13 @@ import { eventChannel } from 'redux-saga';
 let isDeviceAvailable = false;
 let isBluescapeAvailable = false;
 let isZoomRoomAvailable = false;
+let macAddress = '';
 
 function setCapabilities(responseBody         = {}) {
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
   isBluescapeAvailable = !!responseBody.isBluescapeAvailable;
   isZoomRoomAvailable = !!responseBody.isZoomRoomAvailable;
+  macAddress = responseBody.macAddress ? responseBody.macAddress.toUpperCase() : '';
 }
 
 export function getIsServerAvailable()                   {
@@ -30,6 +32,11 @@ export async function getIsBluescapeAvailable()                   {
 export async function getIsZoomRoomAvailable()                   {
   await detectBlend();
   return isZoomRoomAvailable;
+}
+
+export async function getMacAddress()                   {
+  await detectBlend();
+  return macAddress;
 }
 
 export const blendDetectedCallbacks = [];
