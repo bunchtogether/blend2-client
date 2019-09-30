@@ -12,7 +12,7 @@ function setCapabilities(responseBody: Object = {}) {
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
   isBluescapeAvailable = !!responseBody.isBluescapeAvailable;
   isZoomRoomAvailable = !!responseBody.isZoomRoomAvailable;
-  macAddress = responseBody.macAddress ? responseBody.macAddress.toUpperCase() : '';
+  macAddress = typeof responseBody.macAddress === 'string' ? responseBody.macAddress.replace(/-/g, ':').toUpperCase() : '';
 }
 
 export function getIsServerAvailable(): Promise<boolean> {
