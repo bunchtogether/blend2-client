@@ -446,6 +446,19 @@ export default class BlendClient extends EventEmitter {
       if (parsed._incomplete) { // eslint-disable-line no-underscore-dangle
         return;
       }
+      if (!trackIds || !timescales) {
+        const checkedTimescales = mp4Probe.timescale(buffered);
+        if (Object.keys(checkedTimescales).length > 0) {
+          timescales = checkedTimescales;
+          const checkedTrackIds = mp4Probe.videoTrackIds(buffered);
+          if (checkedTrackIds && checkedTrackIds.length > 0) {
+            trackIds = checkedTrackIds;
+          }
+          if (!trackIds || trackIds.length === 0) {
+            return;
+          }
+        }
+      }
       if (!initializedMediaSource) {
         const moov = parsed.fetch('moov');
         if (!moov) {
@@ -465,16 +478,6 @@ export default class BlendClient extends EventEmitter {
             foundFreebox = true;
           } else {
             webSocketLogger.error(`Could not parse free box: ${JSON.stringify(Array.from(freeBoxData))}`);
-          }
-        }
-      }
-      if (!trackIds || !timescales) {
-        const checkedTimescales = mp4Probe.timescale(buffered);
-        if (Object.keys(checkedTimescales).length > 0) {
-          timescales = checkedTimescales;
-          const checkedTrackIds = mp4Probe.videoTrackIds(buffered);
-          if (checkedTrackIds && checkedTrackIds.length === 0) {
-            trackIds = checkedTrackIds;
           }
         }
       }

@@ -32,8 +32,6 @@ async function setMuted(muted         ) {
   }
 }
 
-
-
 const system = {
   setVolume,
   setMuted
