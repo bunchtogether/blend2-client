@@ -436,7 +436,6 @@ export default class BlendClient extends EventEmitter {
     let foundFreebox = false;
 
     ws.onmessage = (event) => {
-      captionParser.clearParsedCaptions();
       const typedArray = new Uint8Array(event.data);
       const merged = new Uint8Array(buffered.byteLength + typedArray.byteLength);
       merged.set(buffered, 0);
@@ -505,6 +504,7 @@ export default class BlendClient extends EventEmitter {
         }
       }
       try {
+        captionParser.clearParsedCaptions();
         const parsedCaptions = captionParser.parse(buffered, trackIds, timescales);
         if (parsedCaptions) {
           const { captions } = parsedCaptions;
@@ -611,6 +611,25 @@ export default class BlendClient extends EventEmitter {
     }
     if (!merged) {
       ranges.push([startTime, endTime]);
+    }
+    const element = this.element;
+    if (!element) {
+      this.captionsLogger.error('Unable to add caption to text track, element does not exist');
+      return;
+    }
+    const currentTime = element.currentTime > 0 ? element.currentTime : 0;
+    if (typeof currentTime !== 'number') {
+      this.captionsLogger.warn('Unable to add caption to text track, no current time');
+      return;
+    }
+    console.log({ startTime, endTime, currentTime, text });
+    if(typeof startTime !== 'number') {
+      this.captionsLogger.warn('Unable to add caption to text track, start time is out of range');
+      return;      
+    }
+    if(typeof endTime !== 'number' || endTime > currentTime + 20) {
+      this.captionsLogger.warn('Unable to add caption to text track, end time is out of range');
+      return;      
     }
     const cue = new Cue(startTime, endTime, text);
     cue.line = 1;
