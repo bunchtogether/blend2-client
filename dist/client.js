@@ -622,12 +622,11 @@ export default class BlendClient extends EventEmitter {
       this.captionsLogger.warn('Unable to add caption to text track, no current time');
       return;
     }
-    console.log({ startTime, endTime, currentTime, text });
     if(typeof startTime !== 'number') {
       this.captionsLogger.warn('Unable to add caption to text track, start time is out of range');
       return;      
     }
-    if(typeof endTime !== 'number' || endTime > currentTime + 20) {
+    if(typeof endTime !== 'number' || endTime > currentTime + 30) {
       this.captionsLogger.warn('Unable to add caption to text track, end time is out of range');
       return;      
     }
