@@ -18,7 +18,7 @@ async function setVolume(volume: number) {
     await superagent.post(`${BASE_API_URL}/volume`).send({ volume });
   } catch (error) {
     console.error(error);
-    throw new Error(`Unable to set volume`);
+    throw new Error('Unable to set volume');
   }
 }
 
@@ -28,13 +28,13 @@ async function setMuted(muted: boolean) {
     await superagent.post(`${BASE_API_URL}/muted`).send({ muted });
   } catch (error) {
     console.error(error);
-    throw new Error(`Unable to set muted`);
+    throw new Error('Unable to set muted');
   }
 }
 
 const system = {
   setVolume,
-  setMuted
+  setMuted,
 };
 
 export default system;

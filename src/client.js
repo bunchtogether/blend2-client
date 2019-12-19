@@ -622,13 +622,13 @@ export default class BlendClient extends EventEmitter {
       this.captionsLogger.warn('Unable to add caption to text track, no current time');
       return;
     }
-    if(typeof startTime !== 'number') {
+    if (typeof startTime !== 'number') {
       this.captionsLogger.warn('Unable to add caption to text track, start time is out of range');
-      return;      
+      return;
     }
-    if(typeof endTime !== 'number' || endTime > currentTime + 30) {
+    if (typeof endTime !== 'number' || endTime > currentTime + 30) {
       this.captionsLogger.warn('Unable to add caption to text track, end time is out of range');
-      return;      
+      return;
     }
     const cue = new Cue(startTime, endTime, text);
     cue.line = 1;
