@@ -1,6 +1,6 @@
 {
   "name": "@bunchtogether/blend2-client",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "main": "dist/index.js",
   "repository": "https://github.com/bunchtogether/blend2-client-js.git",
   "author": "johnwehr@bunchtogether.com",

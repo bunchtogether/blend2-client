@@ -152,6 +152,12 @@ export default class BlendClient extends EventEmitter {
     }
     this.resetInProgress = true;
     await this.close();
+    for (const textTrack of this.textTracks.values()) {
+      this.videoLogger.info(`Removing ${textTrack.cues.length} cues from text track`);
+      for (const cue of textTrack.cues) {
+        textTrack.removeCue(cue);
+      }
+    }
     this.resetInProgress = false;
     this.reconnectAttempt += 1;
     try {
