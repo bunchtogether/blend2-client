@@ -136,14 +136,25 @@ export default class BlendClient extends EventEmitter {
     }
     clearTimeout(this.resetRetryTimeout);
     delete this.videoBuffer;
-    this.element.removeAttribute('src');
-    this.element.load();
     try {
       await this.closeWebSocket();
     } catch (error) {
       this.webSocketLogger.error(`Error closing websocket: ${error.message}`); // eslint-disable-line no-console
     }
+    this.element.removeAttribute('src');
+    this.element.load();
     this.videoQueue = [];
+    for (const textTrack of this.textTracks.values()) {
+      this.videoLogger.info(`Removing ${textTrack.cues.length} cues from text track`);
+      const startMode = textTrack.mode;
+      textTrack.mode = 'hidden';
+      while (textTrack.cues.length > 0) {
+        textTrack.removeCue(textTrack.cues[0]);
+      }
+      textTrack.mode = startMode;
+      this.videoLogger.info(`${textTrack.cues.length} cues remain`);
+    }
+    this.cueRanges = [];
   }
 
   async reset() {
@@ -152,13 +163,6 @@ export default class BlendClient extends EventEmitter {
     }
     this.resetInProgress = true;
     await this.close();
-    for (const textTrack of this.textTracks.values()) {
-      this.videoLogger.info(`Removing ${textTrack.cues.length} cues from text track`);
-      for (const cue of textTrack.cues) {
-        textTrack.removeCue(cue);
-      }
-    }
-    this.cueRanges = [];
     this.resetInProgress = false;
     this.reconnectAttempt += 1;
     try {
@@ -443,6 +447,9 @@ export default class BlendClient extends EventEmitter {
     let foundFreebox = false;
 
     ws.onmessage = (event) => {
+      if (this.resetInProgress) {
+        return;
+      }
       const typedArray = new Uint8Array(event.data);
       const merged = new Uint8Array(buffered.byteLength + typedArray.byteLength);
       merged.set(buffered, 0);
