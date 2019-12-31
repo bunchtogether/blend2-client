@@ -158,6 +158,7 @@ export default class BlendClient extends EventEmitter {
         textTrack.removeCue(cue);
       }
     }
+    this.cueRanges = [];
     this.resetInProgress = false;
     this.reconnectAttempt += 1;
     try {
@@ -611,6 +612,7 @@ export default class BlendClient extends EventEmitter {
         cueRange[1] = Math.max(cueRange[1], endTime);
         merged = true;
         if ((overlap / (endTime - startTime)) > 0.5) {
+          this.captionsLogger.warn('Did not add caption to text track, found overlapping range');
           return;
         }
       }
