@@ -37,7 +37,15 @@ export async function getIsBluescapeAvailable()                   {
 }
 
 export async function getIsZoomRoomAvailable()                   {
-  await detectBlend();
+  const blendDetected = await detectBlend();
+  if (blendDetected) {
+    try {
+      const { body } = await superagent.get('http://127.0.0.1:61340/api/1.0/capabilities');
+      return body.isZoomRoomAvailable;
+    } catch (error) {
+      throw new Error('Error in checking zoom room availability');
+    }
+  }
   return isZoomRoomAvailable;
 }
 
