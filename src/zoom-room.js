@@ -263,7 +263,7 @@ export default class ZoomRoomClient extends EventEmitter {
    * @return {Promise<void>}
    */
   async openWebSocket() {
-    this.shouldReconnect = true;
+    this.shouldReconnect = false;
 
     const address = `ws://127.0.0.1:61340/api/1.0/zoom-room/socket/${encodeURIComponent(this.passcode)}`;
 
@@ -301,7 +301,7 @@ export default class ZoomRoomClient extends EventEmitter {
     };
 
     await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const timeout = setTimeout(() => { 
         const error = new Error('Unable to open websocket, timeout after 10 seconds');
         this.emit('error', error);
         ws.onerror = () => {};
@@ -333,6 +333,7 @@ export default class ZoomRoomClient extends EventEmitter {
       };
     });
     await this.waitForStatus();
+    this.shouldReconnect = true;
   }
 
   reconnect() {
@@ -350,6 +351,8 @@ export default class ZoomRoomClient extends EventEmitter {
       } catch (error) {
         console.log(`Reconnect attempt ${this.reconnectAttempt} failed: ${error.message}`);
         this.emit('error', error);
+        this.shouldReconnect = true;
+        setImmediate(() => this.reconnect());
       }
       this.reconnectAttemptResetTimeout = setTimeout(() => {
         this.reconnectAttempt = 0;
