@@ -74,4 +74,11 @@ export default (name        ) => ({
   error: (value    , description         ) => {
     log(name, 'error', value, description);
   },
+  errorStack: (error      ) => {
+    if (error.stack) {
+      error.stack.split('\n').forEach((line) => log(name, 'error', `\t${line}`));
+    } else {
+      log(name, 'error', error.message);
+    }
+  },
 });

@@ -8,7 +8,7 @@
 
 -   [BlendClient](#blendclient)
     -   [Parameters](#parameters)
-    -   [openWebSocket](#openwebsocket)
+    -   [open](#open)
         -   [Parameters](#parameters-1)
     -   [closeWebSocket](#closewebsocket)
         -   [Parameters](#parameters-2)
@@ -24,13 +24,12 @@ Class representing a Blend Client
 -   `element` **[HTMLVideoElement](https://developer.mozilla.org/docs/Web/API/HTMLVideoElement)** 
 -   `streamUrl` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 
 
-#### openWebSocket
+#### open
 
 Connects to a server.
 
 ##### Parameters
 
--   `streamUrl` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** 
 -   `address` **[string](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/String)** Stream URL
 
 Returns **[Promise](https://developer.mozilla.org/docs/Web/JavaScript/Reference/Global_Objects/Promise)&lt;void>** 
