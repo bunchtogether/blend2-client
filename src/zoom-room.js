@@ -301,7 +301,7 @@ export default class ZoomRoomClient extends EventEmitter {
     };
 
     await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => { 
+      const timeout = setTimeout(() => {
         const error = new Error('Unable to open websocket, timeout after 10 seconds');
         this.emit('error', error);
         ws.onerror = () => {};
@@ -332,8 +332,30 @@ export default class ZoomRoomClient extends EventEmitter {
         resolve();
       };
     });
-    await this.waitForStatus();
-    this.shouldReconnect = true;
+    try {
+      await this.waitForStatus(undefined, 30000);
+      this.shouldReconnect = true;
+      return;
+    } catch (error) {
+      this.webSocketLogger.error('Did not recieve initial status, starting connection loop');
+      this.webSocketLogger.errorStack(error);
+    }
+    for (let i = 1; i < 7; i += 1) {
+      if (!this.ws) {
+        throw new Error('Unable to connect to Zoom Room, websocket does not exist');
+      }
+      try {
+        await this.zstatus.systemUnit();
+        this.shouldReconnect = true;
+        return;
+      } catch (error) {
+        this.webSocketLogger.error('Unable to get systemUnit status');
+        this.webSocketLogger.error(error.s);
+      }
+      this.webSocketLogger.warn(`Retrying handshake in ${i * i} seconds, attempt ${i}`);
+      await new Promise((resolve) => setTimeout(resolve, 1000 * i * i));
+    }
+    throw new Error('Unable to connect to Zoom Room');
   }
 
   reconnect() {
