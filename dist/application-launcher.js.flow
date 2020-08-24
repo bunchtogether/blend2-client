@@ -18,14 +18,14 @@ export async function getApplicationList() {
   return applicationList;
 }
 
-export async function getApplication(application:string) {
+export async function getIconImages(iconRequest:string) {
   const blendServerDetected = await detectBlend();
   if (blendServerDetected) {
     try {
-      const { body } = await superagent.get(`http://127.0.0.1:61340/api/1.0/application/${application}`);
+      const { body } = await superagent.post('http://127.0.0.1:61340/api/1.0/application/iconImageList').send(iconRequest);
       return body;
     } catch (error) {
-      throw new Error('Error in getting application');
+      throw new Error('Error in getting application icon image list');
     }
   }
   return applicationList;
@@ -33,7 +33,7 @@ export async function getApplication(application:string) {
 
 const applicationLauncher = {
   getApplicationList,
-  getApplication,
+  getIconImages,
 };
 
 export default applicationLauncher;
