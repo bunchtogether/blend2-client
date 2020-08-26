@@ -135,6 +135,7 @@ export default class BlendClient extends EventEmitter {
       delete this.clearInitialization;
     }
     clearTimeout(this.resetRetryTimeout);
+    this.resetInProgress = false;
     delete this.videoBuffer;
     try {
       await this.closeWebSocket();
@@ -161,12 +162,13 @@ export default class BlendClient extends EventEmitter {
     if (this.resetInProgress) {
       return;
     }
+    clearTimeout(this.resetRetryTimeout);
     this.resetInProgress = true;
     await this.close();
-    this.resetInProgress = false;
     this.reconnectAttempt += 1;
     try {
       await this.open();
+      this.resetInProgress = false;
     } catch (error) {
       const duration = this.reconnectAttempt > 5 ? 30000 : this.reconnectAttempt * this.reconnectAttempt * 1000;
       this.webSocketLogger.error(`Error reopening websocket, retrying in ${duration / 1000} seconds: ${error.message}`); // eslint-disable-line no-console
