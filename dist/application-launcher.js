@@ -31,11 +31,11 @@ export async function getIconImages(iconRequest       ) {
   return applicationList;
 }
 
-export async function launchApplication(targetPath        ) {
+export async function launchApplication(applicationName        ) {
   const blendServerDetected = await detectBlend();
   if (blendServerDetected) {
     try {
-      const { body } = await superagent.post('http://127.0.0.1:61340/api/1.0/application/launch').send({ targetPath });
+      const { body } = await superagent.post('http://127.0.0.1:61340/api/1.0/application/launch').send({ applicationName });
       return body;
     } catch (error) {
       throw new Error('Error in launching application');
