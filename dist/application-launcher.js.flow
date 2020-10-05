@@ -12,6 +12,9 @@ export async function getApplicationList() {
       const { body } = await superagent.get('http://127.0.0.1:61340/api/1.0/application/application-list');
       return body;
     } catch (error) {
+      if (error.status === 404) {
+        return applicationList;
+      }
       throw new Error('Error in getting application list');
     }
   }
