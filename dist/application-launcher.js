@@ -5,6 +5,21 @@ import { detectBlend } from './capabilities';
 
 const applicationList = {};
 
+export async function checkApplication() {
+  const blendServerDetected = await detectBlend();
+  if (blendServerDetected) {
+    try {
+      const { body } = await superagent.get('http://127.0.0.1:61340/api/1.0/application/check');
+      return body;
+    } catch (error) {
+      if (error.status === 404) {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
 export async function getApplicationList() {
   const blendServerDetected = await detectBlend();
   if (blendServerDetected) {
@@ -61,6 +76,7 @@ export async function closeApplication(processName        ) {
 }
 
 const applicationLauncher = {
+  checkApplication,
   getApplicationList,
   getIconImages,
   launchApplication,
