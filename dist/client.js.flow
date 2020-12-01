@@ -892,7 +892,7 @@ export default class BlendClient extends EventEmitter {
   resetInProgress: boolean;
   resetRetryTimeout: TimeoutID;
   reconnectAttempt: number;
-  videoBuffer: SourceBuffer;
+  videoBuffer: SourceBuffer | void;
   streamUrl:string;
   ws: WebSocket;
   ready: Promise<void>;
@@ -905,6 +905,6 @@ export default class BlendClient extends EventEmitter {
   ready: Promise<void>;
   textTracks: Map<string, TextTrack>;
   cueRanges: Array<[number, number]>;
-  clearInitialization: () => void;
+  clearInitialization: (() => void) | void;
 }
 
