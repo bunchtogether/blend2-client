@@ -1,7 +1,7 @@
 //      
 
 import superagent from 'superagent';
-import { eventChannel } from 'redux-saga';
+import { eventChannel, buffers } from 'redux-saga';
 
 let isDeviceAvailable = false;
 let isBluescapeAvailable = false;
@@ -138,4 +138,4 @@ export const getDetectBlendChannel = () => eventChannel((emit          ) => {
   blendDetectedCallbacks.push((detected        ) => emit(detected));
   detectBlend();
   return () => {};
-});
+}, buffers.expanding(2));
