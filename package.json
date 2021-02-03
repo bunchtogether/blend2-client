@@ -56,14 +56,14 @@
     "pre-commit": "^1.2.2"
   },
   "dependencies": {
-    "big-integer": "^1.6.44",
+    "big-integer": "^1.6.48",
     "codem-isoboxer": "^0.3.7",
     "flatted": "^2.0.0",
     "isomorphic-ws": "^4.0.1",
     "lodash": "^4.17.15",
     "lru-cache": "^5.1.1",
     "murmurhash-v3": "^1.0.2",
-    "mux.js": "^5.5.1",
+    "mux.js": "^5.9.1",
     "redux-saga": "^1.0.5",
     "rimraf": "^2.6.3",
     "superagent": "^5.0.2"
