@@ -90,7 +90,7 @@ const _detectBlend = async () => { // eslint-disable-line no-underscore-dangle
     return false;
   }
   try {
-    const { body } = await superagent.get('http://127.0.0.1:61340/api/1.0/capabilities');
+    const { body } = await superagent.get('http://127.0.0.1:61340/api/1.0/capabilities').timeout({response: 5000, deadline: 15000});
     console.log('%cBlend Service: %cDetected at http://127.0.0.1:61340', 'color:green; font-weight: bold', 'color:green');
     if (window && window.localStorage && !blendPreviouslyDetectedOnDevice) {
       blendPreviouslyDetectedOnDevice = true;
@@ -106,17 +106,16 @@ const _detectBlend = async () => { // eslint-disable-line no-underscore-dangle
   } catch (error) {
     retryAttempts += 1;
     if (blendPreviouslyDetectedOnDevice) {
-      const duration = retryAttempts < 8 ? retryAttempts * retryAttempts * 1000 : 60000;
+      const duration = retryAttempts < 6 ? retryAttempts * retryAttempts * 1000 : 30000;
       retryAttemptTimeout = setTimeout(() => {
-        console.log(`%cBlend Service: %cNot detected at http://127.0.0.1:61340, retrying in ${duration / 1000} seconds`, 'color:red; font-weight: bold', 'color:red');
-        console.log();
         retryAttemptTimeout = null;
+        console.log(`%cBlend Service: %cNot detected at http://127.0.0.1:61340, retrying in ${duration / 1000} seconds`, 'color:red; font-weight: bold', 'color:red');
         detectBlend();
       }, duration);
     } else {
       retryAttemptTimeout = setTimeout(() => {
-        console.log('%cBlend Service: %cNot detected at http://127.0.0.1:61340, retrying in 1 hour', 'color:green; font-weight: bold', 'color:green');
         retryAttemptTimeout = null;
+        console.log('%cBlend Service: %cNot detected at http://127.0.0.1:61340, retrying in 1 hour', 'color:green; font-weight: bold', 'color:green');
         detectBlend();
       }, 60 * 60 * 1000);
     }
@@ -135,7 +134,13 @@ export const clearBlendDetection = () => {
 };
 
 export const getDetectBlendChannel = () => eventChannel((emit: Function) => {
-  blendDetectedCallbacks.push((detected:boolean) => emit(detected));
+  const handleDetected = (detected:boolean) => emit(detected);
+  blendDetectedCallbacks.push(handleDetected);
   detectBlend();
-  return () => {};
+  return () => {
+    const index = blendDetectedCallbacks.indexOf(handleDetected);
+    if(index !== -1) {
+      blendDetectedCallbacks.splice(index, 1);
+    }
+  };
 }, buffers.expanding(2));
