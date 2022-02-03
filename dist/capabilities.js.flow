@@ -8,6 +8,7 @@ let isBluescapeAvailable = false;
 let isZoomRoomAvailable = false;
 let isVolumeControlAvailable = false;
 let macAddress = '';
+let ipAddress = '';
 
 function setCapabilities(responseBody: Object = {}) {
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
@@ -15,6 +16,7 @@ function setCapabilities(responseBody: Object = {}) {
   isZoomRoomAvailable = !!responseBody.isZoomRoomAvailable;
   isVolumeControlAvailable = responseBody.system && responseBody.system >= 1;
   macAddress = typeof responseBody.macAddress === 'string' ? responseBody.macAddress.replace(/-/g, ':').toUpperCase() : '';
+  ipAddress = typeof responseBody.ipAddress === 'string' ? responseBody.ipAddress : '';
 }
 
 export function getIsServerAvailable(): Promise<boolean> {
@@ -52,6 +54,11 @@ export async function getIsZoomRoomAvailable(): Promise<boolean> {
 export async function getMacAddress(): Promise<string> {
   await detectBlend();
   return macAddress;
+}
+
+export async function getIpAddress(): Promise<string> {
+  await detectBlend();
+  return ipAddress;
 }
 
 export const blendDetectedCallbacks = [];

@@ -8,6 +8,7 @@ let isBluescapeAvailable = false;
 let isZoomRoomAvailable = false;
 let isVolumeControlAvailable = false;
 let macAddress = '';
+let ipAddress = '';
 
 function setCapabilities(responseBody: Object = {}) {
   isDeviceAvailable = !!responseBody.isDeviceAvailable;
@@ -15,6 +16,7 @@ function setCapabilities(responseBody: Object = {}) {
   isZoomRoomAvailable = !!responseBody.isZoomRoomAvailable;
   isVolumeControlAvailable = responseBody.system && responseBody.system >= 1;
   macAddress = typeof responseBody.macAddress === 'string' ? responseBody.macAddress.replace(/-/g, ':').toUpperCase() : '';
+  ipAddress = typeof responseBody.ipAddress === 'string' ? responseBody.ipAddress : '';
 }
 
 export function getIsServerAvailable(): Promise<boolean> {
@@ -54,6 +56,11 @@ export async function getMacAddress(): Promise<string> {
   return macAddress;
 }
 
+export async function getIpAddress(): Promise<string> {
+  await detectBlend();
+  return ipAddress;
+}
+
 export const blendDetectedCallbacks = [];
 
 let blendDetected = false;
@@ -90,7 +97,7 @@ const _detectBlend = async () => { // eslint-disable-line no-underscore-dangle
     return false;
   }
   try {
-    const { body } = await superagent.get('http://127.0.0.1:61340/api/1.0/capabilities').timeout({response: 5000, deadline: 15000});
+    const { body } = await superagent.get('http://127.0.0.1:61340/api/1.0/capabilities').timeout({ response: 5000, deadline: 15000 });
     console.log('%cBlend Service: %cDetected at http://127.0.0.1:61340', 'color:green; font-weight: bold', 'color:green');
     if (window && window.localStorage && !blendPreviouslyDetectedOnDevice) {
       blendPreviouslyDetectedOnDevice = true;
@@ -139,7 +146,7 @@ export const getDetectBlendChannel = () => eventChannel((emit: Function) => {
   detectBlend();
   return () => {
     const index = blendDetectedCallbacks.indexOf(handleDetected);
-    if(index !== -1) {
+    if (index !== -1) {
       blendDetectedCallbacks.splice(index, 1);
     }
   };
